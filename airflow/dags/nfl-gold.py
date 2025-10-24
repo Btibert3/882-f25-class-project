@@ -65,11 +65,11 @@ def build_schema():
 
 
 # incremental
-def incremental():
+def incremental_sql():
     SQL = """
-    -- INCREMENTAL LOAD (rolling window; all writes to nfl.* only)
+    -- INCREMENTAL LOAD (rolling window, all writes to nfl.* only)
 
-    BEGIN TRANSACTION;
+    -- BEGIN TRANSACTION;
 
     -- 1) Recent games window (tune as needed)
     CREATE OR REPLACE TABLE nfl.scratch._recent_games AS
@@ -250,7 +250,7 @@ def incremental():
     DROP TABLE IF EXISTS nfl.scratch._delta_fps;
     DROP TABLE IF EXISTS nfl.scratch._recent_games;
 
-    COMMIT;
+    -- COMMIT;
 
     """
     return SQL 
@@ -315,8 +315,9 @@ def gold():
     
     @task 
     def incremental():
-        s = incremental()
-        run_sql(s)
+        s = incremental_sql()
+        # print(s)
+        run_execute(s)
 
     setup_schema() >> incremental()
 
