@@ -69,13 +69,11 @@ def incremental_sql():
     SQL = """
     -- INCREMENTAL LOAD (rolling window, all writes to nfl.* only)
 
-    -- BEGIN TRANSACTION;
-
-    -- 1) Recent games window (tune as needed)
+    -- 1) Recent games window 
     CREATE OR REPLACE TABLE nfl.scratch._recent_games AS
     SELECT g.id AS game_id
     FROM stage.dim_games g
-    WHERE g.start_date >= (CURRENT_DATE - INTERVAL 21 DAY);
+    WHERE g.start_date >= (CURRENT_DATE - INTERVAL 14 DAY);
 
     -- 2) Facts for those games
     CREATE OR REPLACE TABLE nfl.scratch._delta_fps AS
@@ -250,8 +248,6 @@ def incremental_sql():
     DROP TABLE IF EXISTS nfl.scratch._delta_fps;
     DROP TABLE IF EXISTS nfl.scratch._recent_games;
 
-    -- COMMIT;
-
     """
     return SQL 
 
@@ -316,7 +312,6 @@ def gold():
     @task 
     def incremental():
         s = incremental_sql()
-        # print(s)
         run_execute(s)
 
     setup_schema() >> incremental()
