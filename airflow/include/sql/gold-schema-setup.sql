@@ -1,54 +1,74 @@
-    -- ONE-TIME SETUP
-    -- Create target + scratch schemas in the *nfl* database
-    CREATE SCHEMA IF NOT EXISTS nfl.gold;
-    CREATE SCHEMA IF NOT EXISTS nfl.scratch;
+-- ============================================================================
+-- Task: Setup Gold Schema and player_game_stats Table
+-- Purpose: Create schema and table structure (idempotent)
+-- Run: Once at pipeline initialization, safe to rerun
+-- ============================================================================
 
-    -- Create target table shell if missing
-    CREATE TABLE IF NOT EXISTS nfl.gold.player_game_stats AS
-    SELECT
-    CAST(NULL AS BIGINT)   AS game_id,
-    CAST(NULL AS BIGINT)   AS athlete_id,
-    CAST(NULL AS TEXT)     AS athlete_name,
-    CAST(NULL AS INTEGER)  AS team_id,
-    CAST(NULL AS TEXT)     AS team_abbrev,
-    CAST(NULL AS INTEGER)  AS season,
-    CAST(NULL AS INTEGER)  AS week,
-    CAST(NULL AS DATE)     AS game_date,
-    CAST(NULL AS BOOLEAN)  AS is_home,
-    CAST(NULL AS INTEGER)  AS opponent_team_id,
-    CAST(NULL AS TEXT)     AS opponent_abbrev,
+-- Create gold schema if it doesn't exist
+CREATE SCHEMA IF NOT EXISTS gold;
 
-    CAST(NULL AS DECIMAL(10,2)) AS pass_completions,
-    CAST(NULL AS DECIMAL(10,2)) AS pass_attempts,
-    CAST(NULL AS DECIMAL(10,2)) AS pass_yards,
-    CAST(NULL AS DECIMAL(10,2)) AS pass_touchdowns,
-    CAST(NULL AS DECIMAL(10,2)) AS interceptions,
-    CAST(NULL AS DECIMAL(10,2)) AS sacks,
-    CAST(NULL AS DECIMAL(10,2)) AS qb_rating,
+-- Create player_game_stats table with primary key
+CREATE TABLE IF NOT EXISTS gold.player_game_stats (
+    -- Identifiers
+    game_id INTEGER NOT NULL,
+    athlete_id VARCHAR NOT NULL,
+    athlete_name VARCHAR,
+    team_id INTEGER,
+    team_abbrev VARCHAR,
+    season INTEGER NOT NULL,
+    week INTEGER NOT NULL,
+    game_date TIMESTAMP,
+    is_home BOOLEAN,
+    
+    -- Opponent info
+    opponent_team_id INTEGER,
+    opponent_abbrev VARCHAR,
+    
+    -- Passing stats
+    pass_completions DECIMAL(10,2) NOT NULL DEFAULT 0,
+    pass_attempts DECIMAL(10,2) NOT NULL DEFAULT 0,
+    pass_yards DECIMAL(10,2) NOT NULL DEFAULT 0,
+    pass_touchdowns DECIMAL(10,2) NOT NULL DEFAULT 0,
+    interceptions DECIMAL(10,2) NOT NULL DEFAULT 0,
+    sacks DECIMAL(10,2) NOT NULL DEFAULT 0,
+    qb_rating DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Rushing stats
+    rush_attempts DECIMAL(10,2) NOT NULL DEFAULT 0,
+    rush_yards DECIMAL(10,2) NOT NULL DEFAULT 0,
+    rush_touchdowns DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Receiving stats
+    receptions DECIMAL(10,2) NOT NULL DEFAULT 0,
+    receiving_targets DECIMAL(10,2) NOT NULL DEFAULT 0,
+    receiving_yards DECIMAL(10,2) NOT NULL DEFAULT 0,
+    receiving_touchdowns DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Fumbles
+    fumbles DECIMAL(10,2) NOT NULL DEFAULT 0,
+    fumbles_lost DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Kicking stats
+    field_goals_made DECIMAL(10,2) NOT NULL DEFAULT 0,
+    field_goal_attempts DECIMAL(10,2) NOT NULL DEFAULT 0,
+    extra_points_made DECIMAL(10,2) NOT NULL DEFAULT 0,
+    extra_point_attempts DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Defensive stats
+    total_tackles DECIMAL(10,2) NOT NULL DEFAULT 0,
+    sacks_def DECIMAL(10,2) NOT NULL DEFAULT 0,
+    interceptions_def DECIMAL(10,2) NOT NULL DEFAULT 0,
+    fumbles_recovered DECIMAL(10,2) NOT NULL DEFAULT 0,
+    defensive_touchdowns DECIMAL(10,2) NOT NULL DEFAULT 0,
+    
+    -- Calculated fantasy points
+    fantasy_points_ppr DECIMAL(18,4) NOT NULL DEFAULT 0,
+    fantasy_points_standard DECIMAL(18,4) NOT NULL DEFAULT 0,
+    
+    -- Audit columns
+    loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Primary key ensures one row per athlete per game
+    PRIMARY KEY (athlete_id, season, week, game_id)
+);
 
-    CAST(NULL AS DECIMAL(10,2)) AS rush_attempts,
-    CAST(NULL AS DECIMAL(10,2)) AS rush_yards,
-    CAST(NULL AS DECIMAL(10,2)) AS rush_touchdowns,
-
-    CAST(NULL AS DECIMAL(10,2)) AS receptions,
-    CAST(NULL AS DECIMAL(10,2)) AS receiving_targets,
-    CAST(NULL AS DECIMAL(10,2)) AS receiving_yards,
-    CAST(NULL AS DECIMAL(10,2)) AS receiving_touchdowns,
-
-    CAST(NULL AS DECIMAL(10,2)) AS fumbles,
-    CAST(NULL AS DECIMAL(10,2)) AS fumbles_lost,
-
-    CAST(NULL AS DECIMAL(10,2)) AS field_goals_made,
-    CAST(NULL AS DECIMAL(10,2)) AS field_goal_attempts,
-    CAST(NULL AS DECIMAL(10,2)) AS extra_points_made,
-    CAST(NULL AS DECIMAL(10,2)) AS extra_point_attempts,
-
-    CAST(NULL AS DECIMAL(10,2)) AS total_tackles,
-    CAST(NULL AS DECIMAL(10,2)) AS sacks_def,
-    CAST(NULL AS DECIMAL(10,2)) AS interceptions_def,
-    CAST(NULL AS DECIMAL(10,2)) AS fumbles_recovered,
-    CAST(NULL AS DECIMAL(10,2)) AS defensive_touchdowns,
-
-    CAST(NULL AS DECIMAL(10,2)) AS fantasy_points_ppr,
-    CAST(NULL AS DECIMAL(10,2)) AS fantasy_points_standard
-    LIMIT 0;
