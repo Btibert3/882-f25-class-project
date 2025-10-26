@@ -45,7 +45,12 @@ def player_points_prediction():
             SELECT 
                 '2025_w' || LPAD(MAX(week)::VARCHAR, 2, '0') as data_version,
                 COUNT(*) as row_count,
-                COUNT(DISTINCT athlete_id) as unique_players
+                COUNT(DISTINCT athlete_id) as unique_players,
+                (SELECT COUNT(*) 
+                 FROM information_schema.columns 
+                 WHERE table_schema = 'ai_datasets' 
+                  AND table_name = 'player_fantasy_features'
+                  AND column_name LIKE 'avg_%') as feature_count
             FROM nfl.ai_datasets.player_fantasy_features
         """)
         print(result)
@@ -55,12 +60,26 @@ def player_points_prediction():
             "data_version": result[0][0],  # e.g., "2025_w08"
             "dataset_id": f"ds-player-fantasy-{result[0][0]}",
             "row_count": result[0][1],
-            "unique_players": result[0][2]
+            "unique_players": result[0][2],
+            "feature_count": result[0][3]
         }
         print(f"Dataset created: {metadata}")
         return metadata  # This gets passed via XCom in Airflow
 
-        
-    register_model() >> create_dataset()
+    @task
+    def register_dataset(dataset_metadata):
+        s = utils.read_sql(SQL_DIR / "mlops-dataset-registry.sql")
+        template = Template(s)
+        sql = template.render(
+            model_id=model_vals["model_id"],  # Add model_id from model_vals
+            **dataset_metadata  # Unpack dataset metadata
+        )
+        print(sql)
+        utils.run_execute(sql)
+
+    dataset_meta = create_dataset()
+    register_model() >> dataset_meta  # Ensure register_model runs first
+    register_dataset(dataset_meta)
+
 
 player_points_prediction()
