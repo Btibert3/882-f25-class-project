@@ -13,22 +13,17 @@ def read_sql(path: Path) -> str:
 
 
 def run_execute(SQL: str):
-    """Execute multiple SQL statements in a single transaction."""
+    """Execute multiple SQL statements."""
     md = duckdb.connect(f"md:nfl?motherduck_token={os.getenv('MOTHERDUCK_TOKEN')}")
-    print("starting transaction ...")
+    print("executing SQL statements...")
     try:
-        md.execute("BEGIN")
         for stmt in [s for s in SQL.split(";") if s.strip()]:
             print("running statement --------------------")
             print(stmt)
-            md.execute(stmt)
-        md.execute("COMMIT")
+            md.sql(stmt)
+            print("statement completed successfully")
     except Exception as e:
-        print(f"Error: {e}")
-        try:
-            md.execute("ROLLBACK")
-        except Exception:
-            print("Rollback failed")
+        print(f"Error executing SQL: {e}")
         raise
     finally:
         md.close()
