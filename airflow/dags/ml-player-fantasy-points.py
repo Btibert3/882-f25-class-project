@@ -34,7 +34,12 @@ def player_points_prediction():
         sql = template.render(**model_vals)  # Unpack dictionary values kwargs into template
         print(sql)
         utils.run_sql(sql)
+
+    @task
+    def create_dataset():
+        sql = utils.read_sql(SQL_DIR / "ai_datasets" / "player-fantasy-points.sql")
+        utils.run_sql(sql)
         
-    register_model()
+    register_model() >> create_dataset()
 
 player_points_prediction()
