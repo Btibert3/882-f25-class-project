@@ -39,6 +39,7 @@ def run_sql(SQL: str):
     md = duckdb.connect(f"md:nfl?motherduck_token={os.getenv('MOTHERDUCK_TOKEN')}")
     print("running SQL ...")
     try:
-        md.sql(SQL)
+        x = md.sql(SQL).fetchall()
     finally:
         md.close()
+    return x
