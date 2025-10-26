@@ -33,12 +33,33 @@ def player_points_prediction():
         template = Template(s)
         sql = template.render(**model_vals)  # Unpack dictionary values kwargs into template
         print(sql)
-        utils.run_sql(sql)
+        utils.run_execute(sql)
 
     @task
     def create_dataset():
         sql = utils.read_sql(SQL_DIR / "ai_datasets" / "player-fantasy-points.sql")
-        utils.run_sql(sql)
+        utils.run_execute(sql)
+
+        # Query to get metadata about what we just created
+        result = utils.run_sql("""
+            SELECT 
+                '2025_w' || LPAD(MAX(week)::VARCHAR, 2, '0') as data_version,
+                COUNT(*) as row_count,
+                COUNT(DISTINCT athlete_id) as unique_players
+            FROM nfl.ai_datasets.player_fantasy_features
+        """)
+        print(result)
+
+        # the utility returns a list of tuples based on what we created, and uses data in our warehouse to form the entry
+        metadata = {
+            "data_version": result[0][0],  # e.g., "2025_w08"
+            "dataset_id": f"ds-player-fantasy-{result[0][0]}",
+            "row_count": result[0][1],
+            "unique_players": result[0][2]
+        }
+        print(f"Dataset created: {metadata}")
+        return metadata  # This gets passed via XCom in Airflow
+
         
     register_model() >> create_dataset()
 

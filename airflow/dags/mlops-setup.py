@@ -20,7 +20,7 @@ def mlops_setup():
     @task
     def setup_schema():
         s = utils.read_sql(SQL_DIR / "mlops-schema-setup.sql")
-        utils.run_sql(s)
+        utils.run_execute(s)
     
     setup_schema()
 
