@@ -1,4 +1,7 @@
+-- create the schemas that are now introduced
 CREATE SCHEMA IF NOT EXISTS mlops;
+CREATE SCHEMA IF NOT EXISTS ai_datasets;
+CREATE SCHEMA IF NOT EXISTS model_outputs;
 
 -- Model: defines the business problem
 CREATE TABLE IF NOT EXISTS mlops.model (
@@ -26,9 +29,9 @@ CREATE TABLE IF NOT EXISTS mlops.training_run (
   run_id          TEXT PRIMARY KEY,
   model_id        TEXT REFERENCES mlops.model(model_id),
   dataset_id      TEXT REFERENCES mlops.dataset(dataset_id),
-  params_json     TEXT,               -- '{"C":1.0,"max_iter":1000}'
-  metrics_json    TEXT,               -- '{"auc":0.81,"f1":0.66}'
-  artifact_path   TEXT,               -- gs://.../models/churn/run_2025_10_22_1/
+  params    TEXT,               -- '{"C":1.0,"max_iter":1000}' as JSON
+  metrics    TEXT,               -- '{"auc":0.81,"f1":0.66}'
+  artifact   TEXT,               -- gs://.../models/churn/run_2025_10_22_1/
   status          TEXT,               -- 'success'|'failed'
   created_at      TIMESTAMP DEFAULT now()
 );
