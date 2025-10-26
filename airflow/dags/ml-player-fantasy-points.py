@@ -208,11 +208,16 @@ def player_points_prediction():
         utils.run_execute(sql)
         print(f"Training run registered: {run_metadata['run_id']}")
 
-    # Wire up dependencies
-    dataset_meta = create_dataset()
-    run_meta = create_predictions(dataset_meta)
-    
-    register_model() >> dataset_meta >> register_dataset(dataset_meta) >> register_output_table() >> run_meta >> register_training_run(run_meta)
+    # To me, this is more pythonic, but it's not the only way to wire up our workflow
+    model_task = register_model()
+    dataset_task = create_dataset()
+    register_dataset_task = register_dataset(dataset_task)
+    table_task = register_output_table()
+    prediction_task = create_predictions(dataset_task)
+    training_run_task = register_training_run(prediction_task)
+
+    # Flow
+    model_task >> dataset_task >> register_dataset_task >> table_task >> prediction_task >> training_run_task
 
 
 player_points_prediction()
