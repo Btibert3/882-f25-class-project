@@ -24,12 +24,12 @@ def gold():
     @task
     def setup_schema():
         s = utils.read_sql(SQL_DIR / "gold-schema-setup.sql")
-        utils.run_sql(s)
+        utils.run_execute(s)
 
     @task
     def incremental():
         s = utils.read_sql(SQL_DIR / "gold-incremental.sql")
-        utils.run_sql(s)
+        utils.run_execute(s)
 
     setup_schema() >> incremental()
 
