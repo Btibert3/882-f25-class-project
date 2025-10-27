@@ -1,6 +1,8 @@
-from airflow.decorators import dag, task
+# imports
 from datetime import datetime, timedelta
+from airflow.decorators import dag, task
 from airflow.operators.python import get_current_context
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 import requests
 
 # helper
@@ -33,7 +35,23 @@ def nfl_seed_stage():
         resp = invoke_function(url)
         print(resp)
         return resp   
+
+    # once this completes, fire the next dag to update the gold layer
+    trigger_stage = TriggerDagRunOperator(
+        task_id="trigger_gold",
+        trigger_dag_id="gold",   # <-- defined in nfl-gold.py
+        conf={
+            "source_dag_run_id": "{{ dag_run.run_id }}",
+            "source_logical_date": "{{ ds_nodash }}",
+        },
+        wait_for_completion=False,         # fire-and-forget
+        reset_dag_run=False,               # don't clear existing runs if one already exists
+        trigger_rule="none_failed_min_one_success",
+    )
     
-    schema() >> load()
+    schema() >> load() >> trigger_stage
+
+
+
 
 nfl_seed_stage()
