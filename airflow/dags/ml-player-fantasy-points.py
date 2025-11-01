@@ -134,6 +134,78 @@ def player_points_prediction():
         utils.run_execute(SQL)
 
     @task
+    def train_python_model(model_config: dict, dataset_metadata: dict, **context):
+        """Invoke Cloud Function to train/evaluate a Python model"""
+        # Generate unique run_id for this model config
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        algo_short = model_config["algorithm"].replace("_", "")[:8]  # e.g., "linearre", "randomfo"
+        run_id = f"run_{dataset_metadata['data_version']}_{algo_short}_{timestamp}"
+        
+        url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-train-model"
+        params = {
+            "algorithm": model_config["algorithm"],
+            "hyperparameters": json.dumps(model_config["hyperparameters"]),
+            "run_id": run_id,
+            "dataset_id": dataset_metadata["dataset_id"],
+            "model_id": model_vals["model_id"]
+        }
+        print(f"Training {model_config['algorithm']} model with run_id: {run_id}")
+        result = invoke_function(url, params=params)
+        # Add hyperparameters to result for registration task
+        result["hyperparameters"] = model_config["hyperparameters"]
+        print(f"Training completed: {result}")
+        return result
+
+    @task
+    def register_training_run_python(model_result: dict, dataset_metadata: dict, **context):
+        """Register the Python model training run in mlops.training_run"""
+        
+        # Build params JSON from model result and config
+        params = {
+            "algorithm": model_result["algorithm"],
+            "hyperparameters": model_result.get("hyperparameters", {}),
+            "model_type": "python_sklearn"
+        }
+        
+        # Build metrics JSON from Cloud Function response
+        metrics = {
+            "ppr": {
+                "test_rmse": model_result["metrics"]["test_rmse"],
+                "test_mae": model_result["metrics"]["test_mae"],
+                "test_correlation": model_result["metrics"]["test_correlation"],
+                "test_count": model_result["metrics"]["test_count"]
+            }
+        }
+        
+        # Insert into mlops.training_run
+        sql = f"""
+        INSERT INTO nfl.mlops.training_run (
+            run_id,
+            model_id,
+            dataset_id,
+            params,
+            metrics,
+            artifact,
+            status,
+            created_at
+        )
+        VALUES (
+            '{model_result['run_id']}',
+            '{model_vals['model_id']}',
+            '{dataset_metadata['dataset_id']}',
+            '{json.dumps(params)}',
+            '{json.dumps(metrics)}',
+            '{model_result['gcs_path']}',
+            'completed',
+            NOW()
+        )
+        """
+        
+        print(sql)
+        utils.run_execute(sql)
+        print(f"Training run registered: {model_result['run_id']}")
+
+    @task
     def create_predictions(dataset_metadata, **context):
         # Generate clean run_id
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
