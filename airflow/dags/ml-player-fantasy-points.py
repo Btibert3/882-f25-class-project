@@ -142,7 +142,7 @@ def player_points_prediction():
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         algo_short = model_config["algorithm"].replace("_", "")[:8]  # e.g., "linearre", "randomfo"
         # Include map_index to ensure uniqueness across parallel tasks
-        map_index = ctx.get("ti", {}).get("map_index", 0)
+        map_index = ctx["ti"].map_index if "ti" in ctx else 0
         run_id = f"run_{dataset_metadata['data_version']}_{algo_short}_{map_index}_{timestamp}"
         
         url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-train-model"
