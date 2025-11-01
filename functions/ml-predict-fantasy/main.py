@@ -149,7 +149,7 @@ def task(request):
             # Add filters if provided
             conditions = []
             if athlete_id:
-                conditions.append(f"athlete_id = {athlete_id}")
+                conditions.append(f"athlete_id = '{athlete_id}'")
             if season:
                 conditions.append(f"season = {season}")
             if week:
@@ -236,7 +236,8 @@ def task(request):
             if base_where:
                 where_conditions.append(f"({base_where})")
             if athlete_id:
-                where_conditions.append(f"athlete_id = {athlete_id}")
+                # Quote athlete_id as it's a string/VARCHAR
+                where_conditions.append(f"athlete_id = '{athlete_id}'")
             if season:
                 where_conditions.append(f"season = {season}")
             if week:
