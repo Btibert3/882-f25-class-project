@@ -73,18 +73,56 @@ def task(request):
     train_query = read_sql("load-train-data.sql")
     test_query = read_sql("load-test-data.sql")
     
+    # First check if the table exists and has data
+    check_query = """
+        SELECT 
+            COUNT(*) as total_rows,
+            COUNT(CASE WHEN split = 'train' THEN 1 END) as train_rows,
+            COUNT(CASE WHEN split = 'test' THEN 1 END) as test_rows,
+            MAX(week) as max_week
+        FROM nfl.ai_datasets.player_fantasy_features
+        WHERE target_fantasy_ppr IS NOT NULL
+    """
+    
+    try:
+        check_result = md.sql(check_query).df()
+        total_rows = int(check_result.iloc[0]['total_rows']) if len(check_result) > 0 else 0
+        train_rows = int(check_result.iloc[0]['train_rows']) if len(check_result) > 0 else 0
+        test_rows = int(check_result.iloc[0]['test_rows']) if len(check_result) > 0 else 0
+        max_week = check_result.iloc[0]['max_week'] if len(check_result) > 0 else None
+        
+        print(f"Dataset check - Total rows: {total_rows}, Train: {train_rows}, Test: {test_rows}, Max week: {max_week}")
+        
+        if total_rows == 0:
+            return {
+                "error": "Dataset table is empty or does not exist",
+                "details": "Please run the Airflow DAG 'player_points_prediction' to create the dataset first."
+            }, 400
+    except Exception as e:
+        return {
+            "error": "Could not query dataset table",
+            "details": f"Error: {str(e)}. The table nfl.ai_datasets.player_fantasy_features may not exist. Run the dataset creation DAG first."
+        }, 400
+    
     print("Loading training data...")
     train_df = md.sql(train_query).df()
     print(f"Loaded {len(train_df)} training samples")
+    
+    if len(train_df) == 0:
+        return {
+            "error": "No training data found",
+            "details": f"Dataset exists with {total_rows} total rows, but split='train' returned 0 rows. Train rows: {train_rows}."
+        }, 400
     
     print("Loading test data...")
     test_df = md.sql(test_query).df()
     print(f"Loaded {len(test_df)} test samples")
     
-    if len(train_df) == 0:
-        return {"error": "No training data found"}, 400
     if len(test_df) == 0:
-        return {"error": "No test data found"}, 400
+        return {
+            "error": "No test data found",
+            "details": f"Dataset exists with {total_rows} total rows, but split='test' returned 0 rows. Test rows: {test_rows}. Please regenerate the dataset."
+        }, 400
     
     # Extract features (all avg_* columns + is_home)
     feature_cols = [col for col in train_df.columns if col.startswith('avg_') or col == 'is_home']
