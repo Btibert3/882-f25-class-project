@@ -321,13 +321,15 @@ def player_points_prediction():
     training_run_task = register_training_run(prediction_task)
     
     # Python models path (parallel training)
-    python_training_results = train_python_model.expand(
-        model_config=model_configs,
+    python_training_results = train_python_model.partial(
         dataset_metadata=dataset_task
+    ).expand(
+        model_config=model_configs
     )
-    python_registration_tasks = register_training_run_python.expand(
-        model_result=python_training_results,
+    python_registration_tasks = register_training_run_python.partial(
         dataset_metadata=dataset_task
+    ).expand(
+        model_result=python_training_results
     )
 
     # Flow
