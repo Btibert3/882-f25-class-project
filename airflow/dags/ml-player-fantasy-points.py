@@ -344,11 +344,21 @@ def player_points_prediction():
         metrics_json = best_run[2]
         artifact = best_run[3]
         
+        # Parse params to identify the model
+        params = json.loads(params_json)
+        model_type = params.get("model_type", "unknown")
+        algorithm = params.get("algorithm", "N/A")
+        
         # Parse metrics to get MAE
         metrics = json.loads(metrics_json)
         best_mae = metrics["ppr"]["test_mae"]
+        best_rmse = metrics["ppr"]["test_rmse"]
+        best_corr = metrics["ppr"]["test_correlation"]
         
-        print(f"Best model found: run_id={run_id}, MAE={best_mae}, artifact={artifact}")
+        print(f"Best model found: run_id={run_id}")
+        print(f"  Model type: {model_type}, Algorithm: {algorithm}")
+        print(f"  Metrics - MAE: {best_mae}, RMSE: {best_rmse}, Correlation: {best_corr}")
+        print(f"  Artifact: {artifact}")
         
         return {
             "run_id": run_id,
