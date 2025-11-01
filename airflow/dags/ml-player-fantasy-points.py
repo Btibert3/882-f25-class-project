@@ -310,6 +310,50 @@ def player_points_prediction():
         utils.run_execute(sql)
         print(f"Training run registered: {run_metadata['run_id']}")
 
+    @task
+    def find_best_model(dataset_metadata):
+        """Find the best model by comparing all training runs for this dataset, using MAE as the metric"""
+        
+        # Query all training runs for this dataset/model and extract MAE from metrics JSON
+        sql = f"""
+        SELECT 
+            run_id,
+            params,
+            metrics,
+            artifact
+        FROM nfl.mlops.training_run
+        WHERE model_id = '{model_vals['model_id']}'
+          AND dataset_id = '{dataset_metadata['dataset_id']}'
+          AND status = 'completed'
+        ORDER BY CAST(JSON_EXTRACT(metrics, '$.ppr.test_mae') AS DECIMAL(10,4)) ASC
+        LIMIT 1
+        """
+        
+        result = utils.run_sql(sql)
+        
+        if not result or len(result) == 0:
+            return {"error": "No completed training runs found"}
+        
+        best_run = result[0]
+        run_id = best_run[0]
+        params_json = best_run[1]
+        metrics_json = best_run[2]
+        artifact = best_run[3]
+        
+        # Parse metrics to get MAE
+        metrics = json.loads(metrics_json)
+        best_mae = metrics["ppr"]["test_mae"]
+        
+        print(f"Best model found: run_id={run_id}, MAE={best_mae}, artifact={artifact}")
+        
+        return {
+            "run_id": run_id,
+            "dataset_id": dataset_metadata['dataset_id'],
+            "artifact": artifact,
+            "mae": best_mae,
+            "metrics": metrics
+        }
+
     # To me, this is more pythonic, but it's not the only way to wire up our workflow
     model_task = register_model()
     dataset_task = create_dataset()
@@ -332,12 +376,18 @@ def player_points_prediction():
         model_result=python_training_results
     )
 
+    # Convergence: find best model after all training runs complete
+    find_best = find_best_model(dataset_task)
+    
     # Flow
     model_task >> dataset_task >> register_dataset_task >> table_task
     
     # Parallel paths after setup
     table_task >> prediction_task >> training_run_task
     table_task >> python_training_results >> python_registration_tasks
+    
+    # Convergence: find best after all runs complete
+    [training_run_task, python_registration_tasks] >> find_best
 
 
 player_points_prediction()
