@@ -311,18 +311,19 @@ with tab_player:
     st.header("Player Lookup & Historical Analysis")
     st.markdown("""
     This section demonstrates:
-    1. Querying player data from the feature dataset
-    2. Visualizing historical performance
+    1. Querying player historical data from the **gold schema** (all games)
+    2. Visualizing performance trends by game sequence (Last N games)
     3. **Calling the prediction endpoint** to get model predictions
     4. Comparing predictions vs actuals for a specific player
+    5. Viewing 3-week moving average features used for predictions
     """)
     
-    # Get list of players
+    # Get list of players (from either gold or ai_datasets)
     players_df = fetch_df("""
         SELECT DISTINCT 
             athlete_id,
             athlete_name
-        FROM nfl.ai_datasets.player_fantasy_features
+        FROM nfl.gold.player_game_stats
         WHERE athlete_name IS NOT NULL
         ORDER BY athlete_name
     """)
@@ -347,21 +348,26 @@ with tab_player:
         
         st.subheader(f"📊 Analysis for {player_name}")
         
-        # Historical performance from feature dataset
+        # Historical performance from GOLD SCHEMA (all games, including gaps)
         hist_df = fetch_df(f"""
             SELECT 
+                game_id,
                 season,
                 week,
                 game_date,
-                target_fantasy_ppr as actual_ppr,
-                target_fantasy_standard as actual_standard
-            FROM nfl.ai_datasets.player_fantasy_features
+                fantasy_points_ppr as actual_ppr,
+                fantasy_points_standard as actual_standard
+            FROM nfl.gold.player_game_stats
             WHERE athlete_id = ?
-              AND target_fantasy_ppr IS NOT NULL
-            ORDER BY season, week
+              AND fantasy_points_ppr IS NOT NULL
+            ORDER BY game_date
         """, (selected_player_id,))
         
         if not hist_df.empty:
+            # Add game sequence (Last N games) instead of using dates
+            hist_df = hist_df.copy()
+            hist_df['game_sequence'] = range(1, len(hist_df) + 1)
+            
             # Key metrics
             col1, col2, col3, col4 = st.columns(4)
             
@@ -383,14 +389,14 @@ with tab_player:
             
             st.divider()
             
-            # Historical performance chart
-            st.subheader("📈 Historical Fantasy Points")
+            # Historical performance chart by SEQUENCE (not date)
+            st.subheader("📈 Historical Fantasy Points (Last N Games)")
             fig = px.line(
                 hist_df,
-                x='game_date',
+                x='game_sequence',
                 y='actual_ppr',
-                title=f"{player_name} - Fantasy Points Over Time",
-                labels={'actual_ppr': 'PPR Points', 'game_date': 'Date'},
+                title=f"{player_name} - Fantasy Points by Game Sequence (Not Date)",
+                labels={'actual_ppr': 'PPR Points', 'game_sequence': 'Game # (Last N Games)'},
                 markers=True
             )
             fig.update_traces(line=dict(color='#2ca02c', width=2), marker=dict(size=4))
@@ -403,8 +409,8 @@ with tab_player:
             st.subheader("🤖 Model Predictions vs Actuals")
             st.markdown("""
             **This section demonstrates calling the prediction Cloud Function endpoint:**
-            - The endpoint automatically uses the currently deployed model
-            - We filter predictions for this specific player
+            - The endpoint uses `ai_datasets.player_fantasy_features` (3-week lookback features)
+            - Each row represents a prediction where we used last 3 games to predict current game
             - We compare predictions against actual values
             """)
             
@@ -423,7 +429,7 @@ with tab_player:
                     # Merge with actuals for comparison
                     comparison_df = pd.merge(
                         pred_df[['game_date', 'season', 'week', 'predicted_ppr']],
-                        hist_df[['season', 'week', 'actual_ppr']],
+                        hist_df[['season', 'week', 'actual_ppr', 'game_sequence']],
                         on=['season', 'week'],
                         how='inner'
                     )
@@ -432,10 +438,11 @@ with tab_player:
                         comparison_df['error'] = comparison_df['predicted_ppr'] - comparison_df['actual_ppr']
                         comparison_df['abs_error'] = comparison_df['error'].abs()
                         
-                        # Comparison chart
+                        # Comparison chart by SEQUENCE
+                        st.subheader("📊 Predictions vs Actuals by Game Sequence")
                         fig = go.Figure()
                         fig.add_trace(go.Scatter(
-                            x=comparison_df['game_date'],
+                            x=comparison_df['game_sequence'],
                             y=comparison_df['predicted_ppr'],
                             mode='lines+markers',
                             name='Predicted (from deployed model)',
@@ -443,7 +450,7 @@ with tab_player:
                             marker=dict(size=6)
                         ))
                         fig.add_trace(go.Scatter(
-                            x=comparison_df['game_date'],
+                            x=comparison_df['game_sequence'],
                             y=comparison_df['actual_ppr'],
                             mode='lines+markers',
                             name='Actual',
@@ -451,8 +458,8 @@ with tab_player:
                             marker=dict(size=6)
                         ))
                         fig.update_layout(
-                            title=f"{player_name} - Predictions vs Actuals",
-                            xaxis_title="Date",
+                            title=f"{player_name} - Predictions vs Actuals by Game Sequence",
+                            xaxis_title="Game # (Last N Games)",
                             yaxis_title="PPR Points",
                             height=400,
                             hovermode='x unified'
@@ -473,9 +480,9 @@ with tab_player:
                         
                         # Detailed comparison table
                         st.subheader("📋 Detailed Predictions Table")
-                        display_cols = ['game_date', 'season', 'week', 'predicted_ppr', 'actual_ppr', 'error', 'abs_error']
+                        display_cols = ['game_sequence', 'game_date', 'season', 'week', 'predicted_ppr', 'actual_ppr', 'error', 'abs_error']
                         st.dataframe(
-                            comparison_df[display_cols].sort_values('game_date'),
+                            comparison_df[display_cols].sort_values('game_sequence'),
                             use_container_width=True,
                             hide_index=True
                         )
@@ -485,6 +492,104 @@ with tab_player:
                     st.info("No predictions returned for this player.")
             else:
                 st.error("Unexpected response format from prediction endpoint")
+            
+            st.divider()
+            
+            # 3-Week Moving Average Features Section
+            st.subheader("📊 3-Week Moving Average Features")
+            st.markdown("""
+            **The model uses 3-week moving averages as features.** Below shows the most recent features
+            for this player, which would be used to predict the NEXT game:
+            """)
+            
+            # Get latest features from ai_datasets for this player (where target is NULL = future prediction)
+            features_df = fetch_df(f"""
+                SELECT 
+                    season,
+                    week,
+                    game_date,
+                    avg_receptions_3w,
+                    avg_receiving_yards_3w,
+                    avg_receiving_touchdowns_3w,
+                    avg_rush_attempts_3w,
+                    avg_rush_yards_3w,
+                    avg_rush_touchdowns_3w,
+                    avg_pass_yards_3w,
+                    avg_pass_touchdowns_3w,
+                    avg_interceptions_3w,
+                    is_home
+                FROM nfl.ai_datasets.player_fantasy_features
+                WHERE athlete_id = ?
+                ORDER BY game_date DESC
+                LIMIT 10
+            """, (selected_player_id,))
+            
+            if not features_df.empty:
+                # Show latest features prominently
+                st.markdown("**Most Recent Features Used for Predictions:**")
+                latest_features = features_df.iloc[0]
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("3-Week Avg Receptions", f"{latest_features.get('avg_receptions_3w', 0):.2f}")
+                    st.metric("3-Week Avg Rec Yards", f"{latest_features.get('avg_receiving_yards_3w', 0):.2f}")
+                    st.metric("3-Week Avg Rec TDs", f"{latest_features.get('avg_receiving_touchdowns_3w', 0):.2f}")
+                
+                with col2:
+                    st.metric("3-Week Avg Rush Attempts", f"{latest_features.get('avg_rush_attempts_3w', 0):.2f}")
+                    st.metric("3-Week Avg Rush Yards", f"{latest_features.get('avg_rush_yards_3w', 0):.2f}")
+                    st.metric("3-Week Avg Rush TDs", f"{latest_features.get('avg_rush_touchdowns_3w', 0):.2f}")
+                
+                with col3:
+                    st.metric("3-Week Avg Pass Yards", f"{latest_features.get('avg_pass_yards_3w', 0):.2f}")
+                    st.metric("3-Week Avg Pass TDs", f"{latest_features.get('avg_pass_touchdowns_3w', 0):.2f}")
+                    st.metric("3-Week Avg INTs", f"{latest_features.get('avg_interceptions_3w', 0):.2f}")
+                
+                # Visualize feature trends over time
+                st.subheader("📈 Feature Trends Over Time")
+                fig = go.Figure()
+                
+                if 'avg_receptions_3w' in features_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=features_df['game_date'],
+                        y=features_df['avg_receptions_3w'],
+                        mode='lines+markers',
+                        name='Avg Receptions',
+                        line=dict(color='blue')
+                    ))
+                
+                if 'avg_rush_yards_3w' in features_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=features_df['game_date'],
+                        y=features_df['avg_rush_yards_3w'],
+                        mode='lines+markers',
+                        name='Avg Rush Yards',
+                        line=dict(color='green')
+                    ))
+                
+                if 'avg_receiving_yards_3w' in features_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=features_df['game_date'],
+                        y=features_df['avg_receiving_yards_3w'],
+                        mode='lines+markers',
+                        name='Avg Rec Yards',
+                        line=dict(color='purple')
+                    ))
+                
+                fig.update_layout(
+                    title=f"{player_name} - 3-Week Moving Average Features",
+                    xaxis_title="Game Date",
+                    yaxis_title="Average Value (Last 3 Games)",
+                    height=350,
+                    hovermode='x unified'
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # All features table
+                st.markdown("**All Recent Feature Values:**")
+                st.dataframe(features_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No feature data available for this player yet (need at least 3 games played).")
         else:
             st.info(f"No historical data found for {player_name}")
 
@@ -828,6 +933,16 @@ with st.expander("📚 Learning Objectives & Architecture Notes"):
        - Applications call endpoints for predictions
        - Everything connected via shared data warehouse (MotherDuck)
     
+    5. **Data Schema Understanding**:
+       - **Gold Schema** (`nfl.gold.player_game_stats`): Raw historical data per game
+       - **AI Datasets** (`nfl.ai_datasets.player_fantasy_features`): Engineered features for ML
+       - Features use 3-week moving averages to predict the next game
+    
+    6. **Sequence-Based Visualization**:
+       - Historical trends plotted by "Last N Games" instead of dates
+       - Handles gaps in game schedule (bye weeks, injuries)
+       - Better reflects player performance patterns
+    
     ### Architecture Flow:
     ```
     Training Pipeline (Airflow)
@@ -841,10 +956,20 @@ with st.expander("📚 Learning Objectives & Architecture Notes"):
     Dashboard/Applications (Streamlit, APIs, etc.)
     ```
     
+    ### Data Flow for Predictions:
+    ```
+    Gold Schema (raw stats) 
+        ↓ [3-week moving averages]
+    AI Datasets (features)
+        ↓ [ML model]
+    Predictions (next game)
+    ```
+    
     ### Key Files in This Project:
     - `airflow/dags/ml-player-fantasy-points.py`: Training pipeline
     - `functions/ml-predict-fantasy/main.py`: Prediction endpoint
     - `airflow/include/sql/mlops-schema-setup.sql`: Registry schema
+    - `airflow/include/sql/ai_datasets/player-fantasy-points.sql`: Feature engineering
     - This dashboard: Consumer of both registry and endpoint
     """)
 
