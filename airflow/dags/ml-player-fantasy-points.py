@@ -381,6 +381,10 @@ def player_points_prediction():
         # Generate model version ID
         model_version_id = f"{model_vals['model_id']}_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
+        # Escape single quotes in artifact path for SQL
+        artifact_escaped = artifact.replace("'", "''")
+        metrics_json_escaped = json.dumps(metrics).replace("'", "''")
+        
         # Insert into mlops.model_version
         sql = f"""
         INSERT INTO nfl.mlops.model_version (
@@ -396,8 +400,8 @@ def player_points_prediction():
             '{model_version_id}',
             '{model_vals['model_id']}',
             '{run_id}',
-            '{artifact}',
-            '{json.dumps(metrics)}',
+            '{artifact_escaped}',
+            '{metrics_json_escaped}',
             'approved',
             NOW()
         )
