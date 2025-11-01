@@ -365,7 +365,52 @@ def player_points_prediction():
             "dataset_id": dataset_metadata['dataset_id'],
             "artifact": artifact,
             "mae": best_mae,
-            "metrics": metrics
+            "metrics": metrics,
+            "params": params
+        }
+
+    @task
+    def register_model_version(best_model_result):
+        """Register the best model as a model version in mlops.model_version"""
+        
+        run_id = best_model_result['run_id']
+        params = best_model_result['params']
+        metrics = best_model_result['metrics']
+        artifact = best_model_result['artifact']
+        
+        # Generate model version ID
+        model_version_id = f"{model_vals['model_id']}_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Insert into mlops.model_version
+        sql = f"""
+        INSERT INTO nfl.mlops.model_version (
+            model_version_id,
+            model_id,
+            training_run_id,
+            artifact_path,
+            metrics_json,
+            status,
+            created_at
+        )
+        VALUES (
+            '{model_version_id}',
+            '{model_vals['model_id']}',
+            '{run_id}',
+            '{artifact}',
+            '{json.dumps(metrics)}',
+            'approved',
+            NOW()
+        )
+        """
+        
+        print(sql)
+        utils.run_execute(sql)
+        print(f"Model version registered: {model_version_id}")
+        
+        return {
+            "model_version_id": model_version_id,
+            "run_id": run_id,
+            "artifact": artifact
         }
 
     # To me, this is more pythonic, but it's not the only way to wire up our workflow
@@ -392,6 +437,7 @@ def player_points_prediction():
 
     # Convergence: find best model after all training runs complete
     find_best = find_best_model(dataset_task)
+    register_version = register_model_version(find_best)
     
     # Flow
     model_task >> dataset_task >> register_dataset_task >> table_task
@@ -400,8 +446,8 @@ def player_points_prediction():
     table_task >> prediction_task >> training_run_task
     table_task >> python_training_results >> python_registration_tasks
     
-    # Convergence: find best after all runs complete
-    [training_run_task, python_registration_tasks] >> find_best
+    # Convergence: find best after all runs complete, then register as version
+    [training_run_task, python_registration_tasks] >> find_best >> register_version
 
 
 player_points_prediction()
