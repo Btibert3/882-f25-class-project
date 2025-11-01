@@ -371,12 +371,44 @@ def player_points_prediction():
 
     @task
     def register_model_version(best_model_result):
-        """Register the best model as a model version in mlops.model_version"""
+        """Register the best model as a model version, comparing to current production model"""
         
         run_id = best_model_result['run_id']
         params = best_model_result['params']
         metrics = best_model_result['metrics']
         artifact = best_model_result['artifact']
+        new_mae = best_model_result['mae']
+        
+        # Check if there's an existing approved model version
+        check_sql = f"""
+        SELECT 
+            model_version_id,
+            metrics_json
+        FROM nfl.mlops.model_version
+        WHERE model_id = '{model_vals['model_id']}'
+          AND status = 'approved'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+        
+        existing_result = utils.run_sql(check_sql)
+        
+        # Determine status based on comparison
+        if existing_result and len(existing_result) > 0:
+            existing_metrics = json.loads(existing_result[0][1])
+            existing_mae = existing_metrics["ppr"]["test_mae"]
+            
+            # Compare MAE (lower is better)
+            if new_mae < existing_mae:
+                status = 'approved'
+                print(f"New model is better! MAE: {new_mae} vs {existing_mae} (existing approved)")
+            else:
+                status = 'candidate'
+                print(f"New model is worse. MAE: {new_mae} vs {existing_mae} (existing approved)")
+                print(f"Registering as 'candidate' to maintain lineage")
+        else:
+            status = 'approved'
+            print(f"No existing approved model found. Registering as 'approved' (first model)")
         
         # Generate model version ID
         model_version_id = f"{model_vals['model_id']}_v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -402,19 +434,20 @@ def player_points_prediction():
             '{run_id}',
             '{artifact_escaped}',
             '{metrics_json_escaped}',
-            'approved',
+            '{status}',
             NOW()
         )
         """
         
         print(sql)
         utils.run_execute(sql)
-        print(f"Model version registered: {model_version_id}")
+        print(f"Model version registered: {model_version_id} with status: {status}")
         
         return {
             "model_version_id": model_version_id,
             "run_id": run_id,
-            "artifact": artifact
+            "artifact": artifact,
+            "status": status
         }
 
     # To me, this is more pythonic, but it's not the only way to wire up our workflow
