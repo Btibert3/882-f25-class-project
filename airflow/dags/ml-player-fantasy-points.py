@@ -315,11 +315,27 @@ def player_points_prediction():
     dataset_task = create_dataset()
     register_dataset_task = register_dataset(dataset_task)
     table_task = register_output_table()
+    
+    # SQL baseline path (existing)
     prediction_task = create_predictions(dataset_task)
     training_run_task = register_training_run(prediction_task)
+    
+    # Python models path (parallel training)
+    python_training_results = train_python_model.expand(
+        model_config=model_configs,
+        dataset_metadata=dataset_task
+    )
+    python_registration_tasks = register_training_run_python.expand(
+        model_result=python_training_results,
+        dataset_metadata=dataset_task
+    )
 
     # Flow
-    model_task >> dataset_task >> register_dataset_task >> table_task >> prediction_task >> training_run_task
+    model_task >> dataset_task >> register_dataset_task >> table_task
+    
+    # Parallel paths after setup
+    table_task >> prediction_task >> training_run_task
+    table_task >> python_training_results >> python_registration_tasks
 
 
 player_points_prediction()
