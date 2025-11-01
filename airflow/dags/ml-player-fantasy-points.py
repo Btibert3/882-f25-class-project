@@ -484,7 +484,25 @@ def player_points_prediction():
         # Cloud Function URL (will be set when we create the inference function)
         endpoint_url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-predict-fantasy"
         
-        # Insert into mlops.deployment
+        # First, archive old deployments for this model (set traffic_split to 0)
+        # This ensures only the newest deployment is active
+        archive_sql = f"""
+        UPDATE nfl.mlops.deployment
+        SET traffic_split = 0.0
+        WHERE deployment_id IN (
+            SELECT d.deployment_id
+            FROM nfl.mlops.deployment d
+            JOIN nfl.mlops.model_version mv ON d.model_version_id = mv.model_version_id
+            WHERE mv.model_id = '{model_vals['model_id']}'
+              AND d.traffic_split > 0
+        )
+        """
+        
+        print("Archiving old deployments...")
+        print(archive_sql)
+        utils.run_execute(archive_sql)
+        
+        # Insert new deployment with full traffic
         sql = f"""
         INSERT INTO nfl.mlops.deployment (
             deployment_id,
@@ -502,6 +520,7 @@ def player_points_prediction():
         )
         """
         
+        print("Registering new deployment...")
         print(sql)
         utils.run_execute(sql)
         print(f"Deployment registered: {deployment_id} for model version {model_version_id}")

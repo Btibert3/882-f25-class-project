@@ -46,7 +46,7 @@ def task(request):
     md_token = response.payload.data.decode("UTF-8")
     md = duckdb.connect(f'md:?motherduck_token={md_token}')
     
-    # Look up current deployment (most recent with highest traffic_split)
+    # Look up current deployment (only active deployments with traffic_split > 0)
     deployment_query = """
         SELECT 
             d.model_version_id,
@@ -54,6 +54,7 @@ def task(request):
             mv.artifact_path
         FROM nfl.mlops.deployment d
         JOIN nfl.mlops.model_version mv ON d.model_version_id = mv.model_version_id
+        WHERE d.traffic_split > 0
         ORDER BY d.deployed_at DESC, d.traffic_split DESC
         LIMIT 1
     """
