@@ -10,10 +10,20 @@ import json
 import joblib
 import io
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+
+# Helper function to read SQL files
+def read_sql(filename: str) -> str:
+    """Read a SQL file from the sql/ directory."""
+    sql_dir = Path(__file__).parent / "sql"
+    sql_path = sql_dir / filename
+    if not sql_path.exists():
+        raise FileNotFoundError(f"SQL file not found: {sql_path}")
+    return sql_path.read_text(encoding="utf-8")
 
 # settings
 project_id = 'btibert-ba882-fall25'
@@ -59,78 +69,9 @@ def task(request):
     md_token = response.payload.data.decode("UTF-8")
     md = duckdb.connect(f'md:?motherduck_token={md_token}')
     
-    # Load training data from nfl.ai_datasets.player_fantasy_features
-    train_query = """
-        SELECT 
-            athlete_id,
-            game_id,
-            target_fantasy_ppr,
-            avg_pass_completions_3w,
-            avg_pass_attempts_3w,
-            avg_pass_yards_3w,
-            avg_pass_touchdowns_3w,
-            avg_interceptions_3w,
-            avg_sacks_3w,
-            avg_qb_rating_3w,
-            avg_rush_attempts_3w,
-            avg_rush_yards_3w,
-            avg_rush_touchdowns_3w,
-            avg_receptions_3w,
-            avg_receiving_targets_3w,
-            avg_receiving_yards_3w,
-            avg_receiving_touchdowns_3w,
-            avg_fumbles_3w,
-            avg_fumbles_lost_3w,
-            avg_field_goals_made_3w,
-            avg_field_goal_attempts_3w,
-            avg_extra_points_made_3w,
-            avg_extra_point_attempts_3w,
-            avg_total_tackles_3w,
-            avg_sacks_def_3w,
-            avg_interceptions_def_3w,
-            avg_fumbles_recovered_3w,
-            avg_defensive_touchdowns_3w,
-            is_home
-        FROM nfl.ai_datasets.player_fantasy_features
-        WHERE split = 'train'
-          AND target_fantasy_ppr IS NOT NULL
-    """
-    
-    test_query = """
-        SELECT 
-            athlete_id,
-            game_id,
-            target_fantasy_ppr,
-            avg_pass_completions_3w,
-            avg_pass_attempts_3w,
-            avg_pass_yards_3w,
-            avg_pass_touchdowns_3w,
-            avg_interceptions_3w,
-            avg_sacks_3w,
-            avg_qb_rating_3w,
-            avg_rush_attempts_3w,
-            avg_rush_yards_3w,
-            avg_rush_touchdowns_3w,
-            avg_receptions_3w,
-            avg_receiving_targets_3w,
-            avg_receiving_yards_3w,
-            avg_receiving_touchdowns_3w,
-            avg_fumbles_3w,
-            avg_fumbles_lost_3w,
-            avg_field_goals_made_3w,
-            avg_field_goal_attempts_3w,
-            avg_extra_points_made_3w,
-            avg_extra_point_attempts_3w,
-            avg_total_tackles_3w,
-            avg_sacks_def_3w,
-            avg_interceptions_def_3w,
-            avg_fumbles_recovered_3w,
-            avg_defensive_touchdowns_3w,
-            is_home
-        FROM nfl.ai_datasets.player_fantasy_features
-        WHERE split = 'test'
-          AND target_fantasy_ppr IS NOT NULL
-    """
+    # Load SQL queries from files
+    train_query = read_sql("load-train-data.sql")
+    test_query = read_sql("load-test-data.sql")
     
     print("Loading training data...")
     train_df = md.sql(train_query).df()
