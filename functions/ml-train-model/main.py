@@ -8,6 +8,7 @@ import duckdb
 import pandas as pd
 import json
 import joblib
+import io
 from datetime import datetime
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -182,14 +183,31 @@ def task(request):
     
     print(f"Test Metrics - RMSE: {rmse:.4f}, MAE: {mae:.4f}, Correlation: {correlation:.4f}")
     
-    # TODO: Serialize model to GCS
-    # TODO: Return metrics and GCS path
+    # Serialize model to GCS
+    print("Serializing model to GCS...")
     
-    # Placeholder return
+    # Serialize model to bytes using joblib
+    model_bytes = io.BytesIO()
+    joblib.dump(model, model_bytes)
+    model_bytes.seek(0)
+    
+    # Build GCS path with Hive partitioning
+    gcs_path = f"models/model_id={model_id}/dataset_id={dataset_id}/run_id={run_id}/model.pkl"
+    
+    # Upload to GCS
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(gcs_path)
+    blob.upload_from_file(model_bytes, content_type='application/octet-stream')
+    
+    gcs_full_path = f"gs://{bucket_name}/{gcs_path}"
+    print(f"Model saved to: {gcs_full_path}")
+    
+    # Return metrics and GCS path
     return {
         "run_id": run_id,
         "algorithm": algorithm,
-        "gcs_path": f"gs://{bucket_name}/models/model_id={model_id}/dataset_id={dataset_id}/run_id={run_id}/model.pkl",
+        "gcs_path": gcs_full_path,
         "metrics": {
             "test_rmse": round(float(rmse), 4),
             "test_mae": round(float(mae), 4),
