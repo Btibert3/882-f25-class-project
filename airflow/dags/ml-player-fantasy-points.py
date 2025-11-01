@@ -4,12 +4,22 @@ from pathlib import Path
 # import duckdb
 import json
 import os
+import requests
 from ba882 import utils
 from jinja2 import Template
 
 # paths, as the airflow project is a project we deploy to astronomer
 BASE_DIR = Path(os.environ.get("AIRFLOW_HOME", "/usr/local/airflow"))
 SQL_DIR = BASE_DIR / "include" / "sql"
+
+# helper
+def invoke_function(url, params={}) -> dict:
+    """
+    Invoke our cloud function url and optionally pass data for the function to use
+    """
+    resp = requests.get(url, params=params)
+    resp.raise_for_status()
+    return resp.json()
 
 # static values that are why this dag/workflow exists
 model_vals = {
@@ -19,6 +29,26 @@ model_vals = {
   "ticket_number": "BA882-25",
   "owner": "analytics_team"
 }
+
+# model configurations for parallel training
+model_configs = [
+    {
+        "algorithm": "linear_regression",
+        "hyperparameters": {}
+    },
+    {
+        "algorithm": "random_forest",
+        "hyperparameters": {"n_estimators": 100, "max_depth": 10}
+    },
+    {
+        "algorithm": "random_forest",
+        "hyperparameters": {"n_estimators": 200, "max_depth": 15}
+    },
+    {
+        "algorithm": "gradient_boosting",
+        "hyperparameters": {"n_estimators": 100, "learning_rate": 0.1}
+    }
+]
 
 @dag(
     schedule=None,
