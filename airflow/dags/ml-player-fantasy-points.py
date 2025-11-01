@@ -450,6 +450,69 @@ def player_points_prediction():
             "status": status
         }
 
+    @task.branch
+    def should_deploy(model_version_result):
+        """Branch: determine if deployment should happen based on model version status"""
+        status = model_version_result['status']
+        model_version_id = model_version_result['model_version_id']
+        
+        if status == 'approved':
+            print(f"Model version {model_version_id} is approved - proceeding to deployment")
+            return "register_deployment"
+        else:
+            print(f"Model version {model_version_id} has status '{status}' - skipping deployment")
+            return "skip_deployment"
+
+    @task
+    def skip_deployment(model_version_result):
+        """Placeholder task when deployment is skipped"""
+        print("Deployment skipped - model version not approved")
+        return {
+            "deployed": False,
+            "model_version_id": model_version_result['model_version_id']
+        }
+
+    @task
+    def register_deployment(model_version_result):
+        """Register deployment for approved model versions only"""
+        
+        model_version_id = model_version_result['model_version_id']
+        
+        # Generate deployment ID
+        deployment_id = f"deploy_{model_version_id}"
+        
+        # Cloud Function URL (will be set when we create the inference function)
+        endpoint_url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-predict-fantasy"
+        
+        # Insert into mlops.deployment
+        sql = f"""
+        INSERT INTO nfl.mlops.deployment (
+            deployment_id,
+            model_version_id,
+            endpoint_url,
+            traffic_split,
+            deployed_at
+        )
+        VALUES (
+            '{deployment_id}',
+            '{model_version_id}',
+            '{endpoint_url}',
+            1.0,
+            NOW()
+        )
+        """
+        
+        print(sql)
+        utils.run_execute(sql)
+        print(f"Deployment registered: {deployment_id} for model version {model_version_id}")
+        
+        return {
+            "deployment_id": deployment_id,
+            "model_version_id": model_version_id,
+            "endpoint_url": endpoint_url,
+            "deployed": True
+        }
+
     # To me, this is more pythonic, but it's not the only way to wire up our workflow
     model_task = register_model()
     dataset_task = create_dataset()
@@ -476,6 +539,11 @@ def player_points_prediction():
     find_best = find_best_model(dataset_task)
     register_version = register_model_version(find_best)
     
+    # Branch based on whether model was approved
+    deploy_decision = should_deploy(register_version)
+    register_deploy = register_deployment(register_version)
+    skip_deploy = skip_deployment(register_version)
+    
     # Flow
     model_task >> dataset_task >> register_dataset_task >> table_task
     
@@ -483,8 +551,12 @@ def player_points_prediction():
     table_task >> prediction_task >> training_run_task
     table_task >> python_training_results >> python_registration_tasks
     
-    # Convergence: find best after all runs complete, then register as version
+    # Convergence: find best after all runs complete, then register version
     [training_run_task, python_registration_tasks] >> find_best >> register_version
+    
+    # Branch: only deploy if model was approved
+    register_version >> deploy_decision
+    deploy_decision >> [register_deploy, skip_deploy]
 
 
 player_points_prediction()
