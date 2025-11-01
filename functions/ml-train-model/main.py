@@ -9,6 +9,8 @@ import pandas as pd
 import json
 import joblib
 from datetime import datetime
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 
 # settings
 project_id = 'btibert-ba882-fall25'
@@ -151,7 +153,22 @@ def task(request):
     print(f"Features: {len(feature_cols)} columns")
     print(f"Training samples: {len(X_train)}, Test samples: {len(X_test)}")
     
-    # TODO: Train model based on algorithm
+    # Train model based on algorithm
+    print(f"Training {algorithm} model with hyperparameters: {hyperparams}")
+    
+    if algorithm == "linear_regression":
+        model = LinearRegression(**hyperparams)
+    elif algorithm == "random_forest":
+        model = RandomForestRegressor(**hyperparams, random_state=42)
+    elif algorithm == "gradient_boosting":
+        model = GradientBoostingRegressor(**hyperparams, random_state=42)
+    else:
+        return {"error": f"Unknown algorithm: {algorithm}"}, 400
+    
+    print("Fitting model...")
+    model.fit(X_train, y_train)
+    print("Model training completed")
+    
     # TODO: Evaluate on test set
     # TODO: Serialize model to GCS
     # TODO: Return metrics and GCS path
