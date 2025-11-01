@@ -9,8 +9,10 @@ import pandas as pd
 import json
 import joblib
 from datetime import datetime
+import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 # settings
 project_id = 'btibert-ba882-fall25'
@@ -169,7 +171,17 @@ def task(request):
     model.fit(X_train, y_train)
     print("Model training completed")
     
-    # TODO: Evaluate on test set
+    # Evaluate on test set
+    print("Generating predictions on test set...")
+    y_pred = model.predict(X_test)
+    
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    mae = mean_absolute_error(y_test, y_pred)
+    correlation = np.corrcoef(y_test, y_pred)[0, 1]
+    
+    print(f"Test Metrics - RMSE: {rmse:.4f}, MAE: {mae:.4f}, Correlation: {correlation:.4f}")
+    
     # TODO: Serialize model to GCS
     # TODO: Return metrics and GCS path
     
@@ -179,9 +191,9 @@ def task(request):
         "algorithm": algorithm,
         "gcs_path": f"gs://{bucket_name}/models/model_id={model_id}/dataset_id={dataset_id}/run_id={run_id}/model.pkl",
         "metrics": {
-            "test_rmse": None,
-            "test_mae": None,
-            "test_correlation": None,
+            "test_rmse": round(float(rmse), 4),
+            "test_mae": round(float(mae), 4),
+            "test_correlation": round(float(correlation), 4),
             "test_count": len(test_df)
         }
     }, 200
