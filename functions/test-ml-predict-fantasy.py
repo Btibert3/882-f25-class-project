@@ -30,15 +30,14 @@ except requests.exceptions.HTTPError as e:
     if e.response is not None:
         print(f"Response: {e.response.text}")
 
-# Test with filters
+# Test with filters (using Drake Maye)
 print("\n" + "="*60)
-print("Testing with filters (athlete_id=401442643, week=9)...")
+print("Testing with filters (athlete_id=4431452, Drake Maye)...")
 print("="*60)
 
 try:
     result = invoke_function(url, params={
-        "athlete_id": "401442643",
-        "week": "9"
+        "athlete_id": "4431452",  # Drake Maye
     })
     print("\nSuccess!")
     print(f"Model version: {result.get('model_version_id')}")
