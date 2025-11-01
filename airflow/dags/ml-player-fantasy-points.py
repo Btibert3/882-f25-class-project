@@ -1,6 +1,7 @@
 from datetime import datetime
 from airflow.sdk import dag, task    
 from pathlib import Path
+from airflow.operators.python import get_current_context
 # import duckdb
 import json
 import os
@@ -137,9 +138,12 @@ def player_points_prediction():
     def train_python_model(model_config: dict, dataset_metadata: dict, **context):
         """Invoke Cloud Function to train/evaluate a Python model"""
         # Generate unique run_id for this model config
+        ctx = get_current_context()
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         algo_short = model_config["algorithm"].replace("_", "")[:8]  # e.g., "linearre", "randomfo"
-        run_id = f"run_{dataset_metadata['data_version']}_{algo_short}_{timestamp}"
+        # Include map_index to ensure uniqueness across parallel tasks
+        map_index = ctx.get("ti", {}).get("map_index", 0)
+        run_id = f"run_{dataset_metadata['data_version']}_{algo_short}_{map_index}_{timestamp}"
         
         url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-train-model"
         params = {
