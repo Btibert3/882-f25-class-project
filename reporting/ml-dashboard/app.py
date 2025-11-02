@@ -392,49 +392,6 @@ with tab_player:
                     st.metric("3-Week Avg Pass TDs", f"{latest_features.get('avg_pass_touchdowns_3w', 0):.2f}")
                     st.metric("3-Week Avg INTs", f"{latest_features.get('avg_interceptions_3w', 0):.2f}")
                 
-                # Visualize feature trends over time
-                st.subheader("📈 Feature Trends Over Time")
-                fig = go.Figure()
-                
-                if 'avg_receptions_3w' in features_df.columns:
-                    fig.add_trace(go.Scatter(
-                        x=features_df['game_date'],
-                        y=features_df['avg_receptions_3w'],
-                        mode='lines+markers',
-                        name='Avg Receptions',
-                        line=dict(color='blue')
-                    ))
-                
-                if 'avg_rush_yards_3w' in features_df.columns:
-                    fig.add_trace(go.Scatter(
-                        x=features_df['game_date'],
-                        y=features_df['avg_rush_yards_3w'],
-                        mode='lines+markers',
-                        name='Avg Rush Yards',
-                        line=dict(color='green')
-                    ))
-                
-                if 'avg_receiving_yards_3w' in features_df.columns:
-                    fig.add_trace(go.Scatter(
-                        x=features_df['game_date'],
-                        y=features_df['avg_receiving_yards_3w'],
-                        mode='lines+markers',
-                        name='Avg Rec Yards',
-                        line=dict(color='purple')
-                    ))
-                
-                fig.update_layout(
-                    title=f"{player_name} - 3-Week Moving Average Features",
-                    xaxis_title="Game Date",
-                    yaxis_title="Average Value (Last 3 Games)",
-                    height=350,
-                    hovermode='x unified'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # All features table
-                st.markdown("**All Recent Feature Values:**")
-                st.dataframe(features_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No feature data available for this player yet (need at least 3 games played).")
         else:
@@ -460,7 +417,7 @@ with tab_predictions:
         FROM nfl.ai_datasets.player_fantasy_features
         WHERE athlete_name IS NOT NULL
         ORDER BY athlete_name
-        LIMIT 100
+        LIMIT 500
     """)
     
     if players_df.empty:
@@ -472,7 +429,7 @@ with tab_predictions:
             players_df['athlete_id']
         ))
         
-        # Find Drake Maye index
+        # default to drake maye
         default_index = 0
         if DEFAULT_PLAYER_ID in players_df['athlete_id'].values:
             drake_options = [(name, aid) for name, aid in player_options.items() if aid == DEFAULT_PLAYER_ID]
@@ -555,66 +512,33 @@ with tab_predictions:
                         
                         st.subheader("🔮 Prediction Results")
                         
-                        # Model info
-                        with st.expander("📋 Model Information", expanded=True):
-                            st.json({
-                                "model_version_id": pred_response.get('model_version_id', 'N/A'),
-                                "model_type": pred_response.get('model_type', 'N/A'),
-                                "endpoint": prediction_endpoint
-                            })
-                        
+                    
                         if not pred_df.empty:
                             # Get the most recent prediction
                             latest_pred = pred_df.iloc[-1]
-                            
-                            st.markdown("---")
-                            col1, col2, col3 = st.columns(3)
+
                             
                             with col1:
                                 st.metric(
                                     "Predicted PPR Points",
-                                    f"{latest_pred['predicted_ppr']:.2f}",
-                                    delta=f"For Week {latest_features['week'] + 1}"
+                                    f"{latest_pred['predicted_ppr']:.2f}"
                                 )
+                        
+                            # Model info
+                            with st.expander("📋 Model Information", expanded=True):
+                                st.json({
+                                    "model_version_id": pred_response.get('model_version_id', 'N/A'),
+                                    "model_type": pred_response.get('model_type', 'N/A'),
+                                    "endpoint": prediction_endpoint
+                                })
                             
-                            with col2:
-                                if 'actual_ppr' in pred_df.columns and pd.notna(latest_pred.get('actual_ppr')):
-                                    st.metric(
-                                        "Actual PPR Points",
-                                        f"{latest_pred['actual_ppr']:.2f}",
-                                        delta=f"{latest_pred.get('error', 0):.2f} error"
-                                    )
-                                else:
-                                    st.metric(
-                                        "Actual Points",
-                                        "Not yet played",
-                                    )
                             
-                            with col3:
-                                if 'abs_error' in pred_df.columns:
-                                    mae = pred_df['abs_error'].mean()
-                                    st.metric("Mean Absolute Error", f"{mae:.2f}")
-                                else:
-                                    st.metric("Predictions", len(pred_df))
-                            
-                            # Show all predictions
-                            st.markdown("---")
-                            st.subheader("📊 All Available Predictions")
-                            display_cols = ['athlete_name', 'season', 'week', 'predicted_ppr']
-                            if 'actual_ppr' in pred_df.columns:
-                                display_cols.extend(['actual_ppr', 'error'])
-                            
-                            st.dataframe(
-                                pred_df[display_cols].sort_values(['season', 'week']),
-                                use_container_width=True,
-                                hide_index=True
-                            )
                         else:
                             st.info("No predictions returned.")
                 else:
                     st.error(f"No feature data found for {player_name} in the AI datasets.")
         else:
-            st.info("👆 Click the button above to generate a prediction for the selected player.")
+            st.info("Click the button above to generate a prediction for the selected player.")
 
 # ------------------------------------------------------------------------------
 # Footer with teaching notes
@@ -681,5 +605,4 @@ with st.expander("📚 Learning Objectives & Architecture Notes"):
     - `functions/ml-predict-fantasy/main.py`: Prediction endpoint
     - `airflow/include/sql/mlops-schema-setup.sql`: Registry schema
     - `airflow/include/sql/ai_datasets/player-fantasy-points.sql`: Feature engineering
-    - This dashboard: Consumer of both registry and endpoint
     """)
