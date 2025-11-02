@@ -24,11 +24,14 @@ secret_id = 'MotherDuck'
 version_id = 'latest'
 prediction_endpoint = 'https://us-central1-btibert-ba882-fall25.cloudfunctions.net/ml-predict-fantasy'
 
+# Default player
+DEFAULT_PLAYER_ID = '4431452'  # Drake Maye
+
 # Page config
 st.set_page_config(
     page_title="MLOps Fantasy Dashboard",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ------------------------------------------------------------------------------
@@ -75,54 +78,15 @@ st.caption("""
     - View model metrics and training runs from the ML model registry
     - Lookup players and their historical performance
     - **Interact with deployed models via Cloud Function API** 
-    - Compare predictions vs actuals to evaluate model performance
 """)
-
-# ------------------------------------------------------------------------------
-# Sidebar Filters
-# ------------------------------------------------------------------------------
-with st.sidebar:
-    st.header("⚙️ Filters & Settings")
-    
-    # Season filter
-    seasons_df = fetch_df("""
-        SELECT DISTINCT season 
-        FROM nfl.ai_datasets.player_fantasy_features
-        WHERE season IS NOT NULL
-        ORDER BY season DESC
-    """)
-    seasons = seasons_df['season'].tolist() if not seasons_df.empty else [2025]
-    season = st.selectbox("Season", seasons, index=0 if seasons else None)
-    
-    # Week filter (optional)
-    if season:
-        weeks_df = fetch_df("""
-            SELECT DISTINCT week
-            FROM nfl.ai_datasets.player_fantasy_features
-            WHERE season = ?
-            ORDER BY week
-        """, (int(season),))
-        weeks = weeks_df['week'].tolist() if not weeks_df.empty else []
-        week = st.selectbox("Week (optional)", [None] + weeks, index=0)
-    else:
-        week = None
-    
-    st.divider()
-    st.markdown("""
-    **💡 Teaching Notes:**
-    - This dashboard queries the `nfl.mlops` schema for model metadata
-    - Predictions are generated via the Cloud Function endpoint
-    - The prediction function automatically selects the active deployed model
-    """)
 
 # ------------------------------------------------------------------------------
 # Main Tabs
 # ------------------------------------------------------------------------------
-tab_metrics, tab_player, tab_predictions, tab_compare = st.tabs([
+tab_metrics, tab_player, tab_predictions = st.tabs([
     "📊 Metrics Dashboard",
     "👤 Player Lookup",
-    "🔮 Live Predictions",
-    "⚖️ Model Comparison"
+    "🔮 Live Predictions"
 ])
 
 # ============================================================================
@@ -135,7 +99,6 @@ with tab_metrics:
     - Registered models and their versions
     - Training run metrics (RMSE, MAE, Correlation)
     - Deployment status
-    - Performance trends over time
     """)
     
     # Key Metrics Row
@@ -199,51 +162,6 @@ with tab_metrics:
     
     if not versions_df.empty:
         st.dataframe(versions_df, use_container_width=True, hide_index=True)
-        
-        # Performance Trends Chart
-        st.subheader("📈 Performance Trends Over Time")
-        chart_df = versions_df.sort_values('created_at').copy()
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=chart_df['created_at'],
-            y=chart_df['test_mae'],
-            mode='lines+markers',
-            name='Mean Absolute Error (MAE)',
-            line=dict(color='#1f77b4', width=3),
-            marker=dict(size=8)
-        ))
-        fig.add_trace(go.Scatter(
-            x=chart_df['created_at'],
-            y=chart_df['test_rmse'],
-            mode='lines+markers',
-            name='Root Mean Squared Error (RMSE)',
-            line=dict(color='#ff7f0e', width=3),
-            marker=dict(size=8)
-        ))
-        fig.update_layout(
-            title="Model Performance Metrics Over Time (Lower is Better)",
-            xaxis_title="Model Version Creation Date",
-            yaxis_title="Error Metric",
-            hovermode='x unified',
-            height=400,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Correlation trend
-        if chart_df['test_corr'].notna().any():
-            fig2 = px.line(
-                chart_df,
-                x='created_at',
-                y='test_corr',
-                title="Test Correlation Over Time (Higher is Better)",
-                labels={'test_corr': 'Correlation', 'created_at': 'Date'},
-                markers=True
-            )
-            fig2.update_traces(line=dict(color='#2ca02c', width=3), marker=dict(size=8))
-            fig2.update_layout(height=300)
-            st.plotly_chart(fig2, use_container_width=True)
     else:
         st.info("ℹ️ No model versions found. Run the training pipeline to register models.")
     
@@ -253,7 +171,7 @@ with tab_metrics:
     st.subheader("🏃 Recent Training Runs")
     st.markdown("""
     Each training run represents one model experiment. The registry tracks:
-    - Algorithm type (linear_regression, random_forest, etc.)
+    - Algorithm type (linear_regression, random_forest, sql_weighted_average, etc.)
     - Hyperparameters used
     - Evaluation metrics on test set
     """)
@@ -279,9 +197,17 @@ with tab_metrics:
         st.dataframe(runs_df, use_container_width=True, hide_index=True)
         
         # Algorithm comparison
-        if runs_df['algorithm'].notna().any():
+        if runs_df['algorithm'].notna().any() or runs_df['model_type'].notna().any():
             st.subheader("🔬 Algorithm Performance Comparison")
-            algo_df = runs_df.groupby('algorithm').agg({
+            
+            # Combine algorithm and model_type for grouping
+            algo_df = runs_df.copy()
+            algo_df['algorithm_type'] = algo_df.apply(
+                lambda row: row['algorithm'] if pd.notna(row['algorithm']) else row['model_type'],
+                axis=1
+            )
+            
+            algo_agg = algo_df.groupby('algorithm_type').agg({
                 'test_mae': 'mean',
                 'test_rmse': 'mean',
                 'test_corr': 'mean'
@@ -289,13 +215,13 @@ with tab_metrics:
             
             fig = go.Figure()
             fig.add_trace(go.Bar(
-                x=algo_df['algorithm'],
-                y=algo_df['test_mae'],
+                x=algo_agg['algorithm_type'],
+                y=algo_agg['test_mae'],
                 name='Mean MAE',
                 marker_color='lightblue'
             ))
             fig.update_layout(
-                title="Average Test MAE by Algorithm",
+                title="Average Test MAE by Algorithm/Model Type",
                 xaxis_title="Algorithm",
                 yaxis_title="Mean Absolute Error",
                 height=350
@@ -312,13 +238,11 @@ with tab_player:
     st.markdown("""
     This section demonstrates:
     1. Querying player historical data from the **gold schema** (all games)
-    2. Visualizing performance trends by game sequence (Last N games)
-    3. **Calling the prediction endpoint** to get model predictions
-    4. Comparing predictions vs actuals for a specific player
-    5. Viewing 3-week moving average features used for predictions
+    2. Visualizing performance trends by last 4 games
+    3. Viewing 3-week moving average features used for predictions
     """)
     
-    # Get list of players (from either gold or ai_datasets)
+    # Get list of players
     players_df = fetch_df("""
         SELECT DISTINCT 
             athlete_id,
@@ -331,16 +255,23 @@ with tab_player:
     if players_df.empty:
         st.warning("No players found in dataset.")
     else:
-        # Player selection
+        # Player selection with default to Drake Maye
         player_options = dict(zip(
             players_df['athlete_name'] + " (" + players_df['athlete_id'] + ")",
             players_df['athlete_id']
         ))
         
+        # Find Drake Maye index
+        default_index = 0
+        if DEFAULT_PLAYER_ID in players_df['athlete_id'].values:
+            drake_options = [(name, aid) for name, aid in player_options.items() if aid == DEFAULT_PLAYER_ID]
+            if drake_options:
+                default_index = list(player_options.keys()).index(drake_options[0][0])
+        
         selected_player_display = st.selectbox(
             "Select Player",
             options=list(player_options.keys()),
-            index=0
+            index=default_index
         )
         
         selected_player_id = player_options[selected_player_display]
@@ -364,9 +295,8 @@ with tab_player:
         """, (selected_player_id,))
         
         if not hist_df.empty:
-            # Add game sequence (Last N games) instead of using dates
-            hist_df = hist_df.copy()
-            hist_df['game_sequence'] = range(1, len(hist_df) + 1)
+            # Get last 4 games
+            last_4_df = hist_df.tail(4).copy().reset_index(drop=True)
             
             # Key metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -389,109 +319,26 @@ with tab_player:
             
             st.divider()
             
-            # Historical performance chart by SEQUENCE (not date)
-            st.subheader("📈 Historical Fantasy Points (Last N Games)")
-            fig = px.line(
-                hist_df,
-                x='game_sequence',
-                y='actual_ppr',
-                title=f"{player_name} - Fantasy Points by Game Sequence (Not Date)",
-                labels={'actual_ppr': 'PPR Points', 'game_sequence': 'Game # (Last N Games)'},
-                markers=True
+            # Historical performance chart - Last 4 Games with categorical x-axis
+            st.subheader("📈 Last 4 Games Fantasy Points")
+            
+            # Create categorical labels for x-axis
+            last_4_df['game_label'] = last_4_df.apply(
+                lambda row: f"Week {row['week']}\n{row['game_date'].strftime('%m/%d') if pd.notna(row['game_date']) else ''}",
+                axis=1
             )
-            fig.update_traces(line=dict(color='#2ca02c', width=2), marker=dict(size=4))
+            
+            fig = px.bar(
+                last_4_df,
+                x='game_label',
+                y='actual_ppr',
+                title=f"{player_name} - Fantasy Points (Last 4 Games)",
+                labels={'actual_ppr': 'PPR Points', 'game_label': 'Game'},
+                color='actual_ppr',
+                color_continuous_scale='Greens'
+            )
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
-            
-            st.divider()
-            
-            # Model Predictions Section
-            st.subheader("🤖 Model Predictions vs Actuals")
-            st.markdown("""
-            **This section demonstrates calling the prediction Cloud Function endpoint:**
-            - The endpoint uses `ai_datasets.player_fantasy_features` (3-week lookback features)
-            - Each row represents a prediction where we used last 3 games to predict current game
-            - We compare predictions against actual values
-            """)
-            
-            with st.spinner("Fetching predictions from Cloud Function endpoint..."):
-                pred_response = call_prediction_endpoint({"athlete_id": selected_player_id})
-            
-            if "error" in pred_response:
-                st.error(f"❌ Error: {pred_response.get('details', pred_response.get('error'))}")
-            elif "predictions" in pred_response:
-                pred_df = pd.DataFrame(pred_response['predictions'])
-                
-                st.success(f"✅ Retrieved {pred_response['count']} predictions using model: **{pred_response.get('model_version_id', 'N/A')}**")
-                st.caption(f"Model Type: {pred_response.get('model_type', 'N/A')}")
-                
-                if not pred_df.empty:
-                    # Merge with actuals for comparison
-                    comparison_df = pd.merge(
-                        pred_df[['game_date', 'season', 'week', 'predicted_ppr']],
-                        hist_df[['season', 'week', 'actual_ppr', 'game_sequence']],
-                        on=['season', 'week'],
-                        how='inner'
-                    )
-                    
-                    if not comparison_df.empty:
-                        comparison_df['error'] = comparison_df['predicted_ppr'] - comparison_df['actual_ppr']
-                        comparison_df['abs_error'] = comparison_df['error'].abs()
-                        
-                        # Comparison chart by SEQUENCE
-                        st.subheader("📊 Predictions vs Actuals by Game Sequence")
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatter(
-                            x=comparison_df['game_sequence'],
-                            y=comparison_df['predicted_ppr'],
-                            mode='lines+markers',
-                            name='Predicted (from deployed model)',
-                            line=dict(color='blue', width=2, dash='dash'),
-                            marker=dict(size=6)
-                        ))
-                        fig.add_trace(go.Scatter(
-                            x=comparison_df['game_sequence'],
-                            y=comparison_df['actual_ppr'],
-                            mode='lines+markers',
-                            name='Actual',
-                            line=dict(color='green', width=2),
-                            marker=dict(size=6)
-                        ))
-                        fig.update_layout(
-                            title=f"{player_name} - Predictions vs Actuals by Game Sequence",
-                            xaxis_title="Game # (Last N Games)",
-                            yaxis_title="PPR Points",
-                            height=400,
-                            hovermode='x unified'
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Performance metrics
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            mae = comparison_df['abs_error'].mean()
-                            st.metric("Mean Absolute Error", f"{mae:.2f}")
-                        with col2:
-                            rmse = (comparison_df['error']**2).mean()**0.5
-                            st.metric("RMSE", f"{rmse:.2f}")
-                        with col3:
-                            corr = comparison_df['predicted_ppr'].corr(comparison_df['actual_ppr'])
-                            st.metric("Correlation", f"{corr:.3f}")
-                        
-                        # Detailed comparison table
-                        st.subheader("📋 Detailed Predictions Table")
-                        display_cols = ['game_sequence', 'game_date', 'season', 'week', 'predicted_ppr', 'actual_ppr', 'error', 'abs_error']
-                        st.dataframe(
-                            comparison_df[display_cols].sort_values('game_sequence'),
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                    else:
-                        st.info("No overlapping games between predictions and historical data.")
-                else:
-                    st.info("No predictions returned for this player.")
-            else:
-                st.error("Unexpected response format from prediction endpoint")
             
             st.divider()
             
@@ -502,7 +349,7 @@ with tab_player:
             for this player, which would be used to predict the NEXT game:
             """)
             
-            # Get latest features from ai_datasets for this player (where target is NULL = future prediction)
+            # Get latest features from ai_datasets for this player
             features_df = fetch_df(f"""
                 SELECT 
                     season,
@@ -600,310 +447,174 @@ with tab_predictions:
     st.header("🔮 Generate Live Predictions")
     st.markdown("""
     **This section demonstrates how to use the deployed ML model:**
-    1. Set filters for predictions (player, season, week)
-    2. Call the Cloud Function endpoint with parameters
-    3. Display predictions returned by the active deployed model
-    
-    This is how other applications would integrate with your ML models!
+    - Select a player
+    - View their features and get a prediction for the NEXT game
+    - The dataset shows week 8, but the prediction is for week 9
     """)
     
-    col1, col2 = st.columns(2)
+    # Get list of players
+    players_df = fetch_df("""
+        SELECT DISTINCT 
+            athlete_id,
+            athlete_name
+        FROM nfl.ai_datasets.player_fantasy_features
+        WHERE athlete_name IS NOT NULL
+        ORDER BY athlete_name
+        LIMIT 100
+    """)
     
-    with col1:
-        st.subheader("Prediction Parameters")
+    if players_df.empty:
+        st.warning("No players found in dataset.")
+    else:
+        # Player selection with default to Drake Maye
+        player_options = dict(zip(
+            players_df['athlete_name'] + " (" + players_df['athlete_id'] + ")",
+            players_df['athlete_id']
+        ))
         
-        # Player selection (optional)
-        players_df = fetch_df("""
-            SELECT DISTINCT 
-                athlete_id,
-                athlete_name
-            FROM nfl.ai_datasets.player_fantasy_features
-            WHERE athlete_name IS NOT NULL
-            ORDER BY athlete_name
-            LIMIT 100
-        """)
-        
-        player_options = ["All Players"] + [
-            f"{row['athlete_name']} ({row['athlete_id']})" 
-            for _, row in players_df.iterrows()
-        ]
+        # Find Drake Maye index
+        default_index = 0
+        if DEFAULT_PLAYER_ID in players_df['athlete_id'].values:
+            drake_options = [(name, aid) for name, aid in player_options.items() if aid == DEFAULT_PLAYER_ID]
+            if drake_options:
+                default_index = list(player_options.keys()).index(drake_options[0][0])
         
         selected_player_display = st.selectbox(
-            "Player (optional)",
-            options=player_options,
-            index=0
+            "Select Player",
+            options=list(player_options.keys()),
+            index=default_index
         )
         
-        athlete_id = None
-        if selected_player_display != "All Players":
-            # Extract athlete_id from selection
-            athlete_id = selected_player_display.split("(")[-1].rstrip(")")
+        selected_player_id = player_options[selected_player_display]
+        player_name = players_df[players_df['athlete_id'] == selected_player_id]['athlete_name'].iloc[0]
         
-        # Season and week
-        pred_season = st.number_input(
-            "Season (optional)",
-            value=season if season else 2025,
-            min_value=2020,
-            max_value=2030,
-            step=1
-        )
-        
-        pred_week = st.number_input(
-            "Week (optional)",
-            value=int(week) if week else None,
-            min_value=1,
-            max_value=18,
-            step=1
-        )
-        
-        st.markdown("---")
-        
-        if st.button("🚀 Get Predictions", type="primary", use_container_width=True):
-            # Build parameters
-            params = {}
-            if athlete_id:
-                params["athlete_id"] = athlete_id
-            if pred_season:
-                params["season"] = int(pred_season)
-            if pred_week:
-                params["week"] = int(pred_week)
-            
-            with st.spinner("Calling prediction Cloud Function..."):
-                pred_response = call_prediction_endpoint(params)
-            
-            if "error" in pred_response:
-                st.error(f"❌ Error: {pred_response.get('details', pred_response.get('error'))}")
-                if "404" in str(pred_response.get('error', '')):
-                    st.info("💡 Tip: Make sure a model has been deployed. Check the Metrics Dashboard tab.")
-            elif "predictions" in pred_response:
-                st.success(f"✅ Success! Retrieved {pred_response['count']} predictions")
-                
-                # Model info
-                with st.expander("📋 Model Information", expanded=True):
-                    st.json({
-                        "model_version_id": pred_response.get('model_version_id', 'N/A'),
-                        "model_type": pred_response.get('model_type', 'N/A'),
-                        "prediction_count": pred_response.get('count', 0),
-                        "endpoint": prediction_endpoint,
-                        "parameters_used": params
-                    })
-                
-                pred_df = pd.DataFrame(pred_response['predictions'])
-                
-                if not pred_df.empty:
-                    # Summary statistics
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        avg_pred = pred_df['predicted_ppr'].mean()
-                        st.metric("Avg Predicted PPR", f"{avg_pred:.2f}")
-                    
-                    with col2:
-                        max_pred = pred_df['predicted_ppr'].max()
-                        st.metric("Max Prediction", f"{max_pred:.2f}")
-                    
-                    with col3:
-                        min_pred = pred_df['predicted_ppr'].min()
-                        st.metric("Min Prediction", f"{min_pred:.2f}")
-                    
-                    with col4:
-                        if 'error' in pred_df.columns and pred_df['error'].notna().any():
-                            mae = pred_df['abs_error'].mean()
-                            st.metric("Mean Absolute Error", f"{mae:.2f}")
-                        else:
-                            st.metric("Predictions", len(pred_df))
-                    
-                    # Predictions table
-                    st.subheader("📊 Predictions Table")
-                    display_cols = ['athlete_name', 'season', 'week', 'game_date', 'predicted_ppr']
-                    if 'actual_ppr' in pred_df.columns:
-                        display_cols.extend(['actual_ppr', 'error'])
-                    
-                    st.dataframe(
-                        pred_df[display_cols].sort_values(['season', 'week', 'athlete_name']),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    
-                    # Distribution chart
-                    if len(pred_df) > 1:
-                        st.subheader("📈 Prediction Distribution")
-                        fig = px.histogram(
-                            pred_df,
-                            x='predicted_ppr',
-                            nbins=20,
-                            title="Distribution of Predicted PPR Points",
-                            labels={'predicted_ppr': 'Predicted PPR Points', 'count': 'Frequency'}
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("No predictions returned.")
-            else:
-                st.error("Unexpected response format")
-    
-    with col2:
-        st.subheader("💡 How This Works")
-        st.markdown("""
-        **API Endpoint Integration:**
-        
-        This tab demonstrates a real-world integration pattern:
-        
-        1. **User selects parameters** (player, season, week)
-        2. **App calls Cloud Function** via HTTP GET request:
-           ```
-           GET https://.../ml-predict-fantasy
-           ?athlete_id=...&season=...&week=...
-           ```
-        
-        3. **Cloud Function**:
-           - Looks up active deployment in `nfl.mlops.deployment`
-           - Loads the deployed model (SQL or Python)
-           - Generates predictions
-           - Returns JSON response
-        
-        4. **Dashboard displays** predictions interactively
-        
-        **Key Learning Points:**
-        - Models are deployed as Cloud Functions (serverless)
-        - The model registry tracks which version is active
-        - Predictions can be filtered by player, season, week
-        - The same endpoint can be used by other applications
-        """)
-        
-        st.code("""
-# Example: How to call the endpoint from Python
-import requests
-
-response = requests.get(
-    "https://.../ml-predict-fantasy",
-    params={
-        "athlete_id": "12345",
-        "season": 2025,
-        "week": 8
-    }
-)
-
-predictions = response.json()
-        """, language="python")
-
-# ============================================================================
-# TAB 4: Model Comparison
-# ============================================================================
-with tab_compare:
-    st.header("⚖️ Model Version Comparison")
-    st.markdown("""
-    Compare different model versions side-by-side to understand:
-    - Which algorithms perform best
-    - How hyperparameters affect performance
-    - Which model versions are approved vs candidates
-    """)
-    
-    # Get available model versions
-    versions_list_df = fetch_df("""
-        SELECT 
-            mv.model_version_id,
-            m.name as model_name,
-            mv.status,
-            CAST(JSON_EXTRACT(mv.metrics_json, '$.ppr.test_mae') AS DECIMAL(10,4)) as test_mae
-        FROM nfl.mlops.model_version mv
-        JOIN nfl.mlops.model m ON mv.model_id = m.model_id
-        ORDER BY mv.created_at DESC
-        LIMIT 15
-    """)
-    
-    if versions_list_df.empty:
-        st.info("ℹ️ No model versions found for comparison.")
-    else:
-        version_options = versions_list_df.apply(
-            lambda row: f"{row['model_version_id']} (MAE: {row['test_mae']:.2f}, Status: {row['status']})",
-            axis=1
-        ).tolist()
-        
-        selected_versions = st.multiselect(
-            "Select Model Versions to Compare (choose 2-4 for best visualization)",
-            options=version_options,
-            default=version_options[:2] if len(version_options) >= 2 else version_options[:1]
-        )
-        
-        if selected_versions:
-            # Extract version IDs
-            version_ids = [
-                opt.split()[0] for opt in selected_versions
-            ]
-            
-            if version_ids:
-                versions_str = "', '".join(version_ids)
-                comparison_df = fetch_df(f"""
+        if st.button("🚀 Get Prediction", type="primary", use_container_width=True):
+            # Get the player's latest features from ai_datasets
+            with st.spinner("Fetching player features and generating prediction..."):
+                # Get latest features
+                features_df = fetch_df(f"""
                     SELECT 
-                        mv.model_version_id,
-                        m.name as model_name,
-                        mv.status,
-                        CAST(JSON_EXTRACT(mv.metrics_json, '$.ppr.test_rmse') AS DECIMAL(10,4)) as test_rmse,
-                        CAST(JSON_EXTRACT(mv.metrics_json, '$.ppr.test_mae') AS DECIMAL(10,4)) as test_mae,
-                        CAST(JSON_EXTRACT(mv.metrics_json, '$.ppr.test_correlation') AS DECIMAL(10,4)) as test_corr,
-                        CAST(JSON_EXTRACT(mv.metrics_json, '$.ppr.test_count') AS INTEGER) as test_count,
-                        mv.created_at
-                    FROM nfl.mlops.model_version mv
-                    JOIN nfl.mlops.model m ON mv.model_id = m.model_id
-                    WHERE mv.model_version_id IN ('{versions_str}')
-                """)
+                        season,
+                        week,
+                        game_date,
+                        is_home,
+                        avg_receptions_3w,
+                        avg_receiving_yards_3w,
+                        avg_receiving_touchdowns_3w,
+                        avg_rush_attempts_3w,
+                        avg_rush_yards_3w,
+                        avg_rush_touchdowns_3w,
+                        avg_pass_yards_3w,
+                        avg_pass_touchdowns_3w,
+                        avg_interceptions_3w,
+                        avg_receiving_targets_3w,
+                        avg_rush_attempts_3w
+                    FROM nfl.ai_datasets.player_fantasy_features
+                    WHERE athlete_id = ?
+                    ORDER BY game_date DESC
+                    LIMIT 1
+                """, (selected_player_id,))
                 
-                if not comparison_df.empty:
-                    # Comparison table
-                    st.subheader("📋 Metrics Comparison")
-                    st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+                if not features_df.empty:
+                    latest_features = features_df.iloc[0]
                     
-                    # Visualization
-                    st.subheader("📊 Side-by-Side Comparison")
+                    # Display the features being used
+                    st.success(f"✅ Found data for {player_name}")
                     
-                    fig = go.Figure()
+                    # Show prediction context
+                    st.subheader("📋 Prediction Context")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Last Known Week", f"Week {latest_features['week']}")
+                        st.metric("Prediction For", f"Week {int(latest_features['week']) + 1}")
+                    with col2:
+                        st.metric("Season", latest_features['season'])
+                    with col3:
+                        st.metric("Home Game?", "Yes" if latest_features.get('is_home', False) else "No")
                     
-                    fig.add_trace(go.Bar(
-                        x=comparison_df['model_version_id'],
-                        y=comparison_df['test_mae'],
-                        name='MAE',
-                        marker_color='lightblue',
-                        text=comparison_df['test_mae'].round(2),
-                        textposition='outside'
-                    ))
-                    fig.add_trace(go.Bar(
-                        x=comparison_df['model_version_id'],
-                        y=comparison_df['test_rmse'],
-                        name='RMSE',
-                        marker_color='lightcoral',
-                        text=comparison_df['test_rmse'].round(2),
-                        textposition='outside'
-                    ))
+                    # Show features
+                    st.subheader("📊 Features Used (Last 3 Games)")
+                    feature_cols = [
+                        'avg_receptions_3w', 'avg_receiving_yards_3w', 'avg_receiving_touchdowns_3w',
+                        'avg_rush_attempts_3w', 'avg_rush_yards_3w', 'avg_rush_touchdowns_3w',
+                        'avg_pass_yards_3w', 'avg_pass_touchdowns_3w', 'avg_interceptions_3w'
+                    ]
                     
-                    fig.update_layout(
-                        title="Error Metrics Comparison (Lower is Better)",
-                        xaxis_title="Model Version",
-                        yaxis_title="Error Metric",
-                        barmode='group',
-                        height=400,
-                        xaxis={'tickangle': -45}
-                    )
+                    features_display = latest_features[feature_cols]
+                    st.dataframe(features_display.T, use_container_width=True)
                     
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Now call the prediction endpoint
+                    pred_response = call_prediction_endpoint({"athlete_id": selected_player_id})
                     
-                    # Correlation comparison
-                    fig2 = px.bar(
-                        comparison_df,
-                        x='model_version_id',
-                        y='test_corr',
-                        title="Correlation Comparison (Higher is Better)",
-                        labels={'test_corr': 'Test Correlation', 'model_version_id': 'Model Version'},
-                        color='test_corr',
-                        color_continuous_scale='Greens'
-                    )
-                    fig2.update_layout(
-                        height=350,
-                        xaxis={'tickangle': -45},
-                        showlegend=False
-                    )
-                    st.plotly_chart(fig2, use_container_width=True)
+                    if "error" in pred_response:
+                        st.error(f"❌ Error: {pred_response.get('details', pred_response.get('error'))}")
+                        if "404" in str(pred_response.get('error', '')):
+                            st.info("💡 Tip: Make sure a model has been deployed. Check the Metrics Dashboard tab.")
+                    elif "predictions" in pred_response:
+                        pred_df = pd.DataFrame(pred_response['predictions'])
+                        
+                        st.subheader("🔮 Prediction Results")
+                        
+                        # Model info
+                        with st.expander("📋 Model Information", expanded=True):
+                            st.json({
+                                "model_version_id": pred_response.get('model_version_id', 'N/A'),
+                                "model_type": pred_response.get('model_type', 'N/A'),
+                                "endpoint": prediction_endpoint
+                            })
+                        
+                        if not pred_df.empty:
+                            # Get the most recent prediction
+                            latest_pred = pred_df.iloc[-1]
+                            
+                            st.markdown("---")
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric(
+                                    "Predicted PPR Points",
+                                    f"{latest_pred['predicted_ppr']:.2f}",
+                                    delta=f"For Week {latest_features['week'] + 1}"
+                                )
+                            
+                            with col2:
+                                if 'actual_ppr' in pred_df.columns and pd.notna(latest_pred.get('actual_ppr')):
+                                    st.metric(
+                                        "Actual PPR Points",
+                                        f"{latest_pred['actual_ppr']:.2f}",
+                                        delta=f"{latest_pred.get('error', 0):.2f} error"
+                                    )
+                                else:
+                                    st.metric(
+                                        "Actual Points",
+                                        "Not yet played",
+                                    )
+                            
+                            with col3:
+                                if 'abs_error' in pred_df.columns:
+                                    mae = pred_df['abs_error'].mean()
+                                    st.metric("Mean Absolute Error", f"{mae:.2f}")
+                                else:
+                                    st.metric("Predictions", len(pred_df))
+                            
+                            # Show all predictions
+                            st.markdown("---")
+                            st.subheader("📊 All Available Predictions")
+                            display_cols = ['athlete_name', 'season', 'week', 'predicted_ppr']
+                            if 'actual_ppr' in pred_df.columns:
+                                display_cols.extend(['actual_ppr', 'error'])
+                            
+                            st.dataframe(
+                                pred_df[display_cols].sort_values(['season', 'week']),
+                                use_container_width=True,
+                                hide_index=True
+                            )
+                        else:
+                            st.info("No predictions returned.")
+                else:
+                    st.error(f"No feature data found for {player_name} in the AI datasets.")
         else:
-            st.info("Select at least one model version to compare.")
+            st.info("👆 Click the button above to generate a prediction for the selected player.")
 
 # ------------------------------------------------------------------------------
 # Footer with teaching notes
@@ -938,10 +649,10 @@ with st.expander("📚 Learning Objectives & Architecture Notes"):
        - **AI Datasets** (`nfl.ai_datasets.player_fantasy_features`): Engineered features for ML
        - Features use 3-week moving averages to predict the next game
     
-    6. **Sequence-Based Visualization**:
-       - Historical trends plotted by "Last N Games" instead of dates
-       - Handles gaps in game schedule (bye weeks, injuries)
-       - Better reflects player performance patterns
+    6. **Prediction Context**:
+       - Dataset shows week 8 = features calculated THROUGH week 8
+       - Prediction is FOR week 9 (next game)
+       - Model uses last 3 games to predict the 4th
     
     ### Architecture Flow:
     ```
@@ -972,4 +683,3 @@ with st.expander("📚 Learning Objectives & Architecture Notes"):
     - `airflow/include/sql/ai_datasets/player-fantasy-points.sql`: Feature engineering
     - This dashboard: Consumer of both registry and endpoint
     """)
-
