@@ -25,7 +25,6 @@ SELECT
   
   -- Actual values (ground truth)
   target_fantasy_ppr as actual_ppr,
-  target_fantasy_standard as actual_standard,
   
   -- Predictions: Apply fantasy scoring to 3-week averages
   -- PPR Scoring
@@ -43,6 +42,8 @@ SELECT
     (avg_extra_points_made_3w * 1),
     0
   ) as predicted_ppr,
+  
+  target_fantasy_standard as actual_standard,
   
   -- Standard Scoring (no reception bonus)
   COALESCE(

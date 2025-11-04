@@ -128,9 +128,9 @@ SELECT
   target_fantasy_ppr,
   target_fantasy_standard,
   
-  -- Train/Test Split (temporal, dynamic based on available weeks logged stored from our pipeline)
+  -- Train/Test Split (temporal, based on game_date - first 70% of games are train)
   CASE 
-    WHEN week <= QUANTILE_CONT(week, 0.70) OVER () THEN 'train'
+    WHEN PERCENT_RANK() OVER (ORDER BY game_date) < 0.70 THEN 'train'
     ELSE 'test'
   END as split,
   

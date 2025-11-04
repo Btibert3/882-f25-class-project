@@ -97,3 +97,37 @@ gcloud functions deploy stage-load-tables \
     --region us-central1 \
     --allow-unauthenticated \
     --memory 512MB 
+
+echo "======================================================"
+echo "ML: train model"
+echo "======================================================"
+
+gcloud functions deploy ml-train-model \
+    --gen2 \
+    --runtime python312 \
+    --trigger-http \
+    --entry-point task \
+    --source ./ml-train-model \
+    --stage-bucket btibert-ba882-fall25-functions \
+    --service-account ba882-fall25@btibert-ba882-fall25.iam.gserviceaccount.com \
+    --region us-central1 \
+    --allow-unauthenticated \
+    --memory 2GB \
+    --timeout 540s
+
+echo "======================================================"
+echo "ML: predict fantasy (inference)"
+echo "======================================================"
+
+gcloud functions deploy ml-predict-fantasy \
+    --gen2 \
+    --runtime python312 \
+    --trigger-http \
+    --entry-point task \
+    --source ./ml-predict-fantasy \
+    --stage-bucket btibert-ba882-fall25-functions \
+    --service-account ba882-fall25@btibert-ba882-fall25.iam.gserviceaccount.com \
+    --region us-central1 \
+    --allow-unauthenticated \
+    --memory 1GB \
+    --timeout 60s
