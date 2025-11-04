@@ -55,6 +55,7 @@ def task(request):
         FROM nfl.mlops.deployment d
         JOIN nfl.mlops.model_version mv ON d.model_version_id = mv.model_version_id
         WHERE d.traffic_split > 0
+        AND mv.model_id = 'model-fantasy-predictor'
         ORDER BY d.deployed_at DESC, d.traffic_split DESC
         LIMIT 1
     """
