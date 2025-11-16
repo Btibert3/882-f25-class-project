@@ -17,7 +17,7 @@ echo "deploy run"
 echo "======================================================"
 
 
-gcloud run deploy streamlit-poc \
+gcloud run deploy genai-chat-poc \
     --image gcr.io/btibert-ba882-fall25/genai-chat-poc \
     --platform managed \
     --region us-central1 \
