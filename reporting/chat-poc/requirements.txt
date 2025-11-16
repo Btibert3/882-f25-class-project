@@ -6,4 +6,6 @@ pandas
 duckdb==1.3.2
 google-genai
 langchain
+langchain-text-splitters
 PyPDF2
+llama-index
