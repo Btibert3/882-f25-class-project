@@ -10,7 +10,7 @@ echo "======================================================"
 echo "push"
 echo "======================================================"
 
-docker push gcr.io/btibert-ba882-fall25/streamlit-poc
+docker push gcr.io/btibert-ba882-fall25/genai-chat-poc
 
 echo "======================================================"
 echo "deploy run"
