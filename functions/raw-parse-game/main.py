@@ -287,9 +287,12 @@ def task(request):
         md.execute(f"INSERT INTO {tbl} SELECT * FROM article_df")
 
     if article_imgdf is not None and not article_imgdf.empty:
-        print(f"appending rows to raw, article images")
-        tbl = db_schema + ".article_images"
-        md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
+        # more defensive, a clear example where modular is better (i.e. each table is a task, not bundled together)
+        # below is to guard against some instances where there is an entry but no valid data, check for a url
+        if 'url' in article_imgdf.columns:   
+            print(f"appending rows to raw, article images")
+            tbl = db_schema + ".article_images"
+            md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
 
     print(f"appending rows to raw, team stats")
     tbl = db_schema + ".team_stats"
@@ -298,13 +301,6 @@ def task(request):
     print(f"appending rows to raw, player stats")
     tbl = db_schema + ".player_stats"
     md.execute(f"INSERT INTO {tbl} SELECT * FROM player_stats_df")
-
-
-
-
-
-
-
 
 
     return {}, 200
