@@ -90,6 +90,7 @@ def task(request):
     article = j.get("article", None)
     article_df = None 
     article_imgdf = None
+    adf = None
     if article:
         adf = pd.json_normalize(article)
         article_cols = ['id', 'headline', 'published', 'source', 'story']
@@ -101,7 +102,8 @@ def task(request):
         article_df['run_id'] = run_id
         print("finished parsing the article")
 
-        ## article images
+    ## article images
+    if adf is not None:
         tmp = adf[["images"]].explode("images", ignore_index=True)
         article_imgdf = pd.json_normalize(tmp["images"])
         article_imgdf['game_id'] = game_id
@@ -267,6 +269,7 @@ def task(request):
     full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/team_stats/data.parquet"
     print(full_path_run)
     team_stats.to_parquet(full_path_run, index=False)
+    print("Completed team stats")
 
     # player stats
     full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/player_stats/data.parquet"
@@ -275,15 +278,18 @@ def task(request):
     full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/player_stats/data.parquet"
     print(full_path_run)
     player_stats_df.to_parquet(full_path_run, index=False)
+    print("Completed player stats")
 
     # insert/append into the raw tables in the warehouse (MotherDuck)
-    print(f"appending rows to raw, articles")
-    tbl = db_schema + ".articles"
-    md.execute(f"INSERT INTO {tbl} SELECT * FROM article_df")
+    if article_df is not None and not article_df.empty:
+        print(f"appending rows to raw, articles")
+        tbl = db_schema + ".articles"
+        md.execute(f"INSERT INTO {tbl} SELECT * FROM article_df")
 
-    print(f"appending rows to raw, article images")
-    tbl = db_schema + ".article_images"
-    md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
+    if article_imgdf is not None and not article_imgdf.empty:
+        print(f"appending rows to raw, article images")
+        tbl = db_schema + ".article_images"
+        md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
 
     print(f"appending rows to raw, team stats")
     tbl = db_schema + ".team_stats"
