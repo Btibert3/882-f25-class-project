@@ -74,7 +74,7 @@ def nfl_raw_pipeline():
         print(f"Found {len(ids)} game_ids: {ids}")
         return ids
 
-    @task
+    @task(retries=1)
     def parse_load_game_detail(game_id: str) -> dict:
         url = "https://us-central1-btibert-ba882-fall25.cloudfunctions.net/raw-parse-game"
         ctx = get_current_context()
@@ -82,6 +82,7 @@ def nfl_raw_pipeline():
             "game_id": game_id,
             "run_id": ctx["dag_run"].run_id,
         }
+        print(params)
         resp = invoke_function(url, params=params)
         print(f"Finished game_id={game_id}")
         return resp
