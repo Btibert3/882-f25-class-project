@@ -24,11 +24,6 @@ def nfl_article_processing():
     def setup_article_schema():
         s = utils.read_sql(SQL_DIR / "stage-article-proccessing.sql")
         utils.run_execute(s)
-
-    @task
-    def setup_image_schema():
-        s = utils.read_sql(SQL_DIR / "stage-article-image-processing.sql")
-        utils.run_execute(s)
     
     @task(retries=1, retry_delay=timedelta(seconds=30))
     def get_new_articles():
@@ -59,10 +54,9 @@ def nfl_article_processing():
     
     # wiring
     _setup_article = setup_article_schema()
-    _setup_article_images = setup_image_schema()
     article_list = get_new_articles()
 
-    _setup_article >> _setup_article_images >> article_list
+    _setup_article >> article_list
     
     # map over the articles by calling a function processor
     mapped_parse = parse_article.expand(article=article_list)
