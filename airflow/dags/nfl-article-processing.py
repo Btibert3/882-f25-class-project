@@ -36,7 +36,7 @@ def nfl_article_processing():
         datetime_cols = articles.select_dtypes(include=["datetime64[ns]", "datetime64[ns, UTC]"]).columns
         for col in datetime_cols:
             articles[col] = articles[col].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-        return articles.head(10).to_dict(orient='records') # I know that our domain will always have a small amount of data, so keeping it in XCOM but we **should** write this to gcs for playback
+        return articles.to_dict(orient='records') # I know that our domain will always have a small amount of data, so keeping it in XCOM but we **should** write this to gcs for playback
 
     @task(retries=1, retry_delay=timedelta(seconds=30), max_active_tis_per_dag=5)
     def parse_article(article):
