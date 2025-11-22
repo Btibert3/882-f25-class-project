@@ -108,7 +108,7 @@ def task(request):
                 'chunk_index': cid,
                 'article_id': _id,
                 'chunk_text': chunk_text,
-                'headline': headline,
+                'headline': article.get('headline'),
                 'story': story
             }
         }
