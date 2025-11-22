@@ -152,22 +152,3 @@ def task(request):
 
     # metadata could/should be added here
     return {}, 200
-
-
-
-
-
-
-
-
-    
-
-    # return a dictionary/json entry, its blank because are not returning data, 200 for success
-    return {}, 200
-
-    # quick sanity response
-    # return (
-    #     json.dumps({"ok": True, "received_keys": list(payload.keys())}),
-    #     200,
-    #     {"Content-Type": "application/json"},
-    # )
