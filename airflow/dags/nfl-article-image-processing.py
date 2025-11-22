@@ -39,11 +39,6 @@ def nfl_article_image_processing():
         return imgs.head(10).to_dict(orient='records') # I know that our domain will always have a small amount of data, so keeping it in XCOM but we **should** write this to gcs for playback
 
 
-    # ^^ need to stop here, and consider it means to move a record forward
-    # parse the image to gcs, as we don't have this artifact
-    # clip embeddings for the image but can support query text
-
-
 
     # @task(retries=1, retry_delay=timedelta(seconds=30), max_active_tis_per_dag=5)
     # def parse_article(article):
