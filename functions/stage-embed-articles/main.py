@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 from bs4 import BeautifulSoup
 import re
+import json
 
 # settings
 project_id = 'btibert-ba882-fall25'
@@ -113,4 +114,4 @@ def task(request):
     
 
     # return a dictionary/json entry, its blank because are not returning data, 200 for success
-    return {}, 200
+    # return {}, 200

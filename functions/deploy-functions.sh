@@ -131,3 +131,19 @@ gcloud functions deploy ml-predict-fantasy \
     --allow-unauthenticated \
     --memory 1GB \
     --timeout 60s
+
+echo "======================================================"
+echo "genai ingest articles"
+echo "======================================================"
+gcloud functions deploy genai-ingest-articles \
+    --gen2 \
+    --runtime python312 \
+    --trigger-http \
+    --entry-point task \
+    --source ./stage-embed-articles \
+    --stage-bucket btibert-ba882-fall25-functions \
+    --service-account ba882-fall25@btibert-ba882-fall25.iam.gserviceaccount.com \
+    --region us-central1 \
+    --allow-unauthenticated \
+    --memory 1GB \
+    --timeout 60s
