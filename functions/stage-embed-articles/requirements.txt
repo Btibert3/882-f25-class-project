@@ -7,3 +7,4 @@ beautifulsoup4
 lxml
 langchain==1.0.3
 langchain-text-splitters
+pandas
