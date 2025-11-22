@@ -69,8 +69,4 @@ def nfl_article_processing():
 
     article_list >> mapped_parse
 
-    
-    
-
-    
 nfl_article_processing()
