@@ -1,8 +1,8 @@
 streamlit 
-matplotlib
+# matplotlib
 google-cloud-secret-manager
-numpy
-pandas
+# numpy
+# pandas
 duckdb==1.3.2
 google-genai==1.25.0
 pinecone
