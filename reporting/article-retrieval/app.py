@@ -125,7 +125,7 @@ if search_button:
         class Person(BaseModel):
             name: str
             team: str
-            sentiment: Literal['Very Good Game','Good Game', 'Netural', 'Bad Game', 'Very Bad Game','Not Applicable']
+            sentiment: Literal['Very Good Game','Good Game', 'Neutral', 'Bad Game', 'Very Bad Game','Not Applicable']
             role: Literal['Player', 'Coach', 'Referee', 'Other']
 
         class EntityExtractionResult(BaseModel):
@@ -189,6 +189,15 @@ if search_button:
                 blocks = blocks[:-1]
 
             annotated_text(*blocks)
+
+            ######## show the context for review
+            st.markdown("----")
+            st.write('Below are the raw results from pinecone')
+            vec_db_chunks = [(r.metadata['article_id'],
+                              r.metadata['headline'],
+                              r.metadata['chunk_text']) for r in results.matches]
+            st.write(vec_db_chunks)
+            
 
 
     else:
