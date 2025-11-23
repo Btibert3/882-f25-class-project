@@ -59,6 +59,7 @@ def nfl_article_processing():
     _setup_article >> article_list
     
     # map over the articles by calling a function processor
+    # if there are no new articles, this will skip!
     mapped_parse = parse_article.expand(article=article_list)
 
     article_list >> mapped_parse
