@@ -48,8 +48,21 @@ def nfl_seed_stage():
         reset_dag_run=False,               # don't clear existing runs if one already exists
         trigger_rule="none_failed_min_one_success",
     )
+
+    # wire in - week 12
+    trigger_articles = TriggerDagRunOperator(
+        task_id="trigger_nfl_article_processing",
+        trigger_dag_id="nfl_article_processing",  
+        conf={
+            "source_dag_run_id": "{{ dag_run.run_id }}",
+            "source_logical_date": "{{ ds_nodash }}",
+        },
+        wait_for_completion=False,
+        reset_dag_run=False,
+        trigger_rule="none_failed_min_one_success",
+    )
     
-    schema() >> load() >> trigger_stage
+    schema() >> load() >> [trigger_stage, trigger_articles]
 
 
 
