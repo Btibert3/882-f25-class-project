@@ -79,32 +79,39 @@ def task(request):
     j_string = json.dumps(j)
     _path = f"raw/game_detail/season={season}/week={week}/game_id={game_id}"
     gcs_path = upload_to_gcs(bucket_name, path=_path, run_id=run_id, data=j_string)
+    print(type(gcs_path))
+    print(gcs_path)
     print(f"wrote API response to: {_path}")
 
 
     ############################## for this game, parse out information (assumes game is over, but we can control that in our orchestration!)
 
     ## article
-    article = j.get("article")
-    adf = pd.json_normalize(article)
-    article_cols = ['id', 'headline', 'published', 'source', 'story']
-    article_df = adf[article_cols].copy()
-    article_df['game_id'] = game_id
-    article_df['ingest_timestamp'] = ingest_ts_str
-    article_df["published"] = pd.to_datetime(article_df["published"], utc=True)
-    article_df['source_path'] = gcs_path.get('blob_name')
-    article_df['run_id'] = run_id
-    print("finished parsing the article")
+    article = j.get("article", None)
+    article_df = None 
+    article_imgdf = None
+    adf = None
+    if article:
+        adf = pd.json_normalize(article)
+        article_cols = ['id', 'headline', 'published', 'source', 'story']
+        article_df = adf[article_cols].copy()
+        article_df['game_id'] = game_id
+        article_df['ingest_timestamp'] = ingest_ts_str
+        article_df["published"] = pd.to_datetime(article_df["published"], utc=True)
+        article_df['source_path'] = gcs_path.get('blob_name')
+        article_df['run_id'] = run_id
+        print("finished parsing the article")
 
     ## article images
-    tmp = adf[["images"]].explode("images", ignore_index=True)
-    article_imgdf = pd.json_normalize(tmp["images"])
-    article_imgdf['game_id'] = game_id
-    article_imgdf['article_id'] = article['id']
-    article_imgdf['ingest_timestamp'] = ingest_ts_str
-    article_imgdf['source_path'] = gcs_path.get('blob_name')
-    article_imgdf['run_id'] = run_id
-    print("finished parsing the images")
+    if adf is not None:
+        tmp = adf[["images"]].explode("images", ignore_index=True)
+        article_imgdf = pd.json_normalize(tmp["images"])
+        article_imgdf['game_id'] = game_id
+        article_imgdf['article_id'] = article['id']
+        article_imgdf['ingest_timestamp'] = ingest_ts_str
+        article_imgdf['source_path'] = gcs_path.get('blob_name')
+        article_imgdf['run_id'] = run_id
+        print("finished parsing the images")
    
     # team statistics
     team_stats = pd.json_normalize(
@@ -232,22 +239,27 @@ def task(request):
 
     ############################################## write files to GCS
 
+    # holy moly variable overload
+    gcs_path = "gs://" + gcs_path.get('bucket_name') + "/raw"
+
     # articles
-    gcs_path = "gs://btibert-ba882-fall25-nfl/raw"
-    full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/articles/data.parquet"
-    print(full_path)
-    article_df.to_parquet(full_path, index=False)
-    full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/articles/data.parquet"
-    print(full_path_run)
-    article_df.to_parquet(full_path_run, index=False)
+    if article_df is not None and not article_df.empty:
+        # gcs_path = "gs://btibert-ba882-fall25-nfl/raw"
+        full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/articles/data.parquet"
+        print(full_path)
+        article_df.to_parquet(full_path, index=False)
+        full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/articles/data.parquet"
+        print(full_path_run)
+        article_df.to_parquet(full_path_run, index=False)
 
     # article iamges
-    full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/article_images/data.parquet"
-    print(full_path)
-    article_imgdf.to_parquet(full_path, index=False)
-    full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/article_images/data.parquet"
-    print(full_path_run)
-    article_imgdf.to_parquet(full_path_run, index=False)
+    if article_imgdf is not None and not article_imgdf.empty:
+        full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/article_images/data.parquet"
+        print(full_path)
+        article_imgdf.to_parquet(full_path, index=False)
+        full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/article_images/data.parquet"
+        print(full_path_run)
+        article_imgdf.to_parquet(full_path_run, index=False)
 
     # team stats
     full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/team_stats/data.parquet"
@@ -257,6 +269,7 @@ def task(request):
     full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/team_stats/data.parquet"
     print(full_path_run)
     team_stats.to_parquet(full_path_run, index=False)
+    print("Completed team stats")
 
     # player stats
     full_path = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/player_stats/data.parquet"
@@ -265,15 +278,21 @@ def task(request):
     full_path_run = gcs_path + f"/game_detail/season={season}/week={week}/game_id={game_id}/run_id={run_id}/player_stats/data.parquet"
     print(full_path_run)
     player_stats_df.to_parquet(full_path_run, index=False)
+    print("Completed player stats")
 
     # insert/append into the raw tables in the warehouse (MotherDuck)
-    print(f"appending rows to raw, articles")
-    tbl = db_schema + ".articles"
-    md.execute(f"INSERT INTO {tbl} SELECT * FROM article_df")
+    if article_df is not None and not article_df.empty:
+        print(f"appending rows to raw, articles")
+        tbl = db_schema + ".articles"
+        md.execute(f"INSERT INTO {tbl} SELECT * FROM article_df")
 
-    print(f"appending rows to raw, article images")
-    tbl = db_schema + ".article_images"
-    md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
+    if article_imgdf is not None and not article_imgdf.empty:
+        # more defensive, a clear example where modular is better (i.e. each table is a task, not bundled together)
+        # below is to guard against some instances where there is an entry but no valid data, check for a url
+        if 'url' in article_imgdf.columns:   
+            print(f"appending rows to raw, article images")
+            tbl = db_schema + ".article_images"
+            md.execute(f"INSERT INTO {tbl} SELECT * FROM article_imgdf")
 
     print(f"appending rows to raw, team stats")
     tbl = db_schema + ".team_stats"
@@ -282,13 +301,6 @@ def task(request):
     print(f"appending rows to raw, player stats")
     tbl = db_schema + ".player_stats"
     md.execute(f"INSERT INTO {tbl} SELECT * FROM player_stats_df")
-
-
-
-
-
-
-
 
 
     return {}, 200

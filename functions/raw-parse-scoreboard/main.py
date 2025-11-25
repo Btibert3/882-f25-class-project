@@ -102,7 +102,7 @@ def task(request):
                 'id': venue['id'],
                 'fullname': venue['fullName'],
                 'city': venue['address']['city'],
-                'state': venue['address']['state'],
+                'state': venue.get('address', {}).get('state', None), #errors on intl -> 'state': venue['address']['state'],
                 'country': venue['address']['country'],
                 'indoor': venue['indoor'],
                 'ingest_timestamp': ingest_ts_str,

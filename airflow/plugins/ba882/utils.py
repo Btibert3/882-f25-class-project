@@ -38,3 +38,14 @@ def run_sql(SQL: str):
     finally:
         md.close()
     return x
+
+
+def get_df(SQL: str):
+    """Execute a single SQL script to return a dataframe"""
+    md = duckdb.connect(f"md:nfl?motherduck_token={os.getenv('MOTHERDUCK_TOKEN')}")
+    print("running SQL ...")
+    try:
+        x = md.sql(SQL).df()
+    finally:
+        md.close()
+    return x
