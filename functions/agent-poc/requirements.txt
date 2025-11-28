@@ -1,0 +1,6 @@
+functions-framework==3.*
+langchain==1.0.3
+langgraph==1.0.2
+langchain-google-vertexai==2.1.2
+# google-cloud-secret-manager
+# google-cloud-storage
