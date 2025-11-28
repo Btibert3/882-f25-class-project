@@ -164,3 +164,19 @@ gcloud functions deploy agent-poc \
     --allow-unauthenticated \
     --memory 1GB \
     --timeout 60s
+
+echo "======================================================"
+echo "LangGraph serverless - RAG from class 12"
+echo "======================================================"
+gcloud functions deploy langgraph-rag \
+    --gen2 \
+    --runtime python312 \
+    --trigger-http \
+    --entry-point task \
+    --source ./langgraph-rag \
+    --stage-bucket btibert-ba882-fall25-functions \
+    --service-account ba882-fall25@btibert-ba882-fall25.iam.gserviceaccount.com \
+    --region us-central1 \
+    --allow-unauthenticated \
+    --memory 1GB \
+    --timeout 60s
