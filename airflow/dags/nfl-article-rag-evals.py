@@ -222,14 +222,13 @@ def nfl_article_rag_evals():
     
     @task
     def aggregate_results(results: list) -> dict:
-        """Aggregate metrics and register experiment in LangSmith using evaluate()."""
+        """Aggregate metrics and register experiment in LangSmith."""
         ls_api_key = os.environ.get("LANGSMITH_API_KEY")
         if not ls_api_key:
             raise ValueError("LANGSMITH_API_KEY environment variable not set")
         
         client = Client(api_key=ls_api_key)
         ctx = get_current_context()
-        dataset_id = results[0]["dataset_id"] if results else None
         
         # Compute aggregate metrics
         valid_results = [r for r in results if "metrics" in r]
@@ -255,95 +254,52 @@ def nfl_article_rag_evals():
             print(f"{metric}: {value:.4f}")
         print("=" * 80)
         
-        # Create a target function for evaluate() that matches our Cloud Function interface
-        def rag_target_function(inputs: dict) -> dict:
-            """Wrapper function for evaluate() that calls our Cloud Function."""
-            question = inputs["question"]
-            print(f"[rag_target_function] Processing question: {question}")
+        # Register experiment by creating runs linked to dataset examples
+        dag_run_id = ctx["dag_run"].run_id
+        dataset_id = valid_results[0]["dataset_id"]
+        
+        print(f"\nRegistering {len(valid_results)} runs to create experiment '{EXPERIMENT_NAME}'...")
+        
+        # Create runs for each result, which should automatically create an experiment
+        for result in valid_results:
             try:
-                response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
-                print(f"[rag_target_function] Success for: {question[:50]}...")
-                return {
-                    "answer": response.get("answer", ""),
-                    "articles": response.get("articles", []),
-                    "contexts": response.get("contexts", []),
-                }
+                # Create run linked to the dataset example
+                run = client.create_run(
+                    name=f"{EXPERIMENT_NAME}-{result['example_id'][:8]}",
+                    run_type="chain",
+                    inputs={"question": result["question"]},
+                    outputs={
+                        "answer": result.get("answer", ""),
+                        "expected_article_id": result["expected_article_id"],
+                        **result["metrics"],  # Include metrics in outputs
+                    },
+                    extra={
+                        "dag_run_id": dag_run_id,
+                        **result["metrics"],
+                        "relevant_retrieved": result["relevant_retrieved"],
+                        "total_chunks": result["total_chunks"],
+                    },
+                    dataset_id=dataset_id,
+                    reference_example_id=result["example_id"],  # Link to dataset example
+                )
+                
+                # Add feedback scores for each metric
+                for metric_name, metric_value in result["metrics"].items():
+                    client.create_feedback(
+                        run_id=run.id if hasattr(run, 'id') else None,
+                        key=metric_name,
+                        score=metric_value,
+                        source_type="api",
+                    )
+                
+                print(f"  Registered run for example {result['example_id'][:8]}")
             except Exception as e:
-                print(f"[rag_target_function] ERROR calling Cloud Function for question '{question}': {str(e)}")
+                print(f"ERROR: Could not register run for example {result['example_id']}: {str(e)}")
                 import traceback
                 print(traceback.format_exc())
-                # Return empty/default values so evaluators can still compute metrics (they'll be 0)
-                return {
-                    "answer": f"ERROR: {str(e)}",
-                    "articles": [],
-                    "contexts": [],
-                }
         
-        # Define evaluators that compute our metrics
-        def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            """Compute Precision@25."""
-            try:
-                expected_article_id = reference_outputs.get("expected_article_id")
-                total_chunks = reference_outputs.get("total_chunks", 1)
-                retrieved_articles = outputs.get("articles", [])
-                precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
-                return {"key": f"precision@{K}", "score": precision}
-            except Exception as e:
-                print(f"[precision_evaluator] ERROR: {str(e)}, inputs={inputs.get('question', '')[:50]}")
-                return {"key": f"precision@{K}", "score": 0.0}
-        
-        def recall_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            """Compute Recall@25."""
-            expected_article_id = reference_outputs.get("expected_article_id")
-            total_chunks = reference_outputs.get("total_chunks", 1)
-            retrieved_articles = outputs.get("articles", [])
-            recall = compute_recall_at_k(retrieved_articles, expected_article_id, total_chunks, K)
-            return {"key": f"recall@{K}", "score": recall}
-        
-        def mrr_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            """Compute MRR."""
-            expected_article_id = reference_outputs.get("expected_article_id")
-            retrieved_articles = outputs.get("articles", [])
-            mrr = compute_mrr(retrieved_articles, expected_article_id)
-            return {"key": "mrr", "score": mrr}
-        
-        def ndcg_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            """Compute NDCG@25."""
-            expected_article_id = reference_outputs.get("expected_article_id")
-            total_chunks = reference_outputs.get("total_chunks", 1)
-            contexts = outputs.get("contexts", [])
-            ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
-            return {"key": f"ndcg@{K}", "score": ndcg}
-        
-        # Use evaluate() to create the experiment properly
-        print(f"\nRunning evaluation via LangSmith evaluate() to create experiment...")
-        try:
-            evaluate_result = client.evaluate(
-                rag_target_function,
-                data=DATASET_NAME,  # Use dataset name
-                evaluators=[
-                    precision_evaluator,
-                    recall_evaluator,
-                    mrr_evaluator,
-                    ndcg_evaluator,
-                ],
-                experiment_prefix=EXPERIMENT_NAME,
-                description="RAG pipeline evaluation with Precision, Recall, MRR, and NDCG metrics",
-                max_concurrency=5,
-            )
-            
-            print(f"Successfully created experiment '{EXPERIMENT_NAME}' via evaluate()")
-            print(f"Experiment ID: {evaluate_result.experiment_id if hasattr(evaluate_result, 'experiment_id') else 'N/A'}")
-            
-        except Exception as e:
-            print(f"ERROR: Could not create experiment via evaluate(): {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-            raise
-        
-        print(f"\nView results in LangSmith:")
-        print(f"  Dataset: {DATASET_NAME}")
-        print(f"  Experiment: {EXPERIMENT_NAME}")
+        print(f"\nExperiment '{EXPERIMENT_NAME}' registered with {len(valid_results)} runs")
+        print(f"View results in LangSmith dataset: {DATASET_NAME}")
         
         return {
             "aggregate_metrics": aggregate_metrics,
