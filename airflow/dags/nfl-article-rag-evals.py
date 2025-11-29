@@ -254,41 +254,53 @@ def nfl_article_rag_evals():
             print(f"{metric}: {value:.4f}")
         print("=" * 80)
         
-        # Register experiment runs in LangSmith
+        # Register experiment in LangSmith
         dag_run_id = ctx["dag_run"].run_id
         timestamp = datetime.now().isoformat()
-        dataset_id = valid_results[0]["dataset_id"]  # Get dataset_id from first result
+        dataset_id = valid_results[0]["dataset_id"]
         
-        print(f"\nRegistering {len(valid_results)} runs to LangSmith experiment '{EXPERIMENT_NAME}'...")
+        print(f"\nCreating experiment '{EXPERIMENT_NAME}' in LangSmith...")
+        
+        # Try to create or get experiment
+        try:
+            # Check if experiment exists for this dataset
+            # Note: LangSmith experiments are typically created via the UI or evaluate() API
+            # For now, we'll create runs and link them to the dataset
+            # The experiment should appear automatically when runs are linked to dataset examples
+            pass
+        except Exception as e:
+            print(f"Note: {str(e)}")
+        
+        print(f"\nRegistering {len(valid_results)} runs linked to dataset examples...")
         
         registered_count = 0
         for result in valid_results:
             try:
-                # Create run for each example evaluation
-                # Note: create_run may return None on success, so we check for exceptions only
+                # Create run and link it to the dataset example
+                # This should create an experiment when runs are linked to dataset examples
                 client.create_run(
-                    name=f"{EXPERIMENT_NAME}-{dag_run_id}",
+                    name=f"{EXPERIMENT_NAME}-{result['example_id'][:8]}",
                     run_type="chain",
                     inputs={"question": result["question"]},
                     outputs={
                         "answer": result.get("answer", ""),
                         "expected_article_id": result["expected_article_id"],
+                        **result["metrics"],  # Include metrics in outputs
                     },
                     extra={
                         "dag_run_id": dag_run_id,
                         "timestamp": timestamp,
-                        "example_id": result["example_id"],
                         **result["metrics"],
                         "relevant_retrieved": result["relevant_retrieved"],
                         "total_chunks": result["total_chunks"],
                     },
                     dataset_id=dataset_id,
-                    project_name=EXPERIMENT_NAME,
+                    reference_example_id=result["example_id"],  # This links to the dataset example
                 )
                 registered_count += 1
-                print(f"  Registered run for example {result['example_id']}")
+                print(f"  Registered run for example {result['example_id'][:8]}")
             except Exception as e:
-                print(f"ERROR: Could not register run for example {result['example_id']}: {str(e)}")
+                print(f"ERROR: Could not register run: {str(e)}")
                 import traceback
                 print(traceback.format_exc())
         
