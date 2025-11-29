@@ -106,8 +106,32 @@ with tab_query:
 # --- Workflow Graph Tab ---
 with tab_graph:
     st.subheader("LangGraph Workflow")
-    try:
-        graph_mermaid = st.session_state.workflow.get_graph().draw_mermaid()
-        stmd.st_mermaid(graph_mermaid)
-    except Exception as e:
-        st.error(f"Graph not available: {e}")
+    
+    if "workflow" in st.session_state:
+        try:
+            graph = st.session_state.workflow.get_graph()
+            graph_mermaid = graph.draw_mermaid()
+            
+            if graph_mermaid:
+                stmd.st_mermaid(graph_mermaid)
+                
+                with st.expander("Raw Mermaid Code"):
+                    st.code(graph_mermaid, language="mermaid")
+            else:
+                st.warning("Mermaid graph is empty")
+        except Exception as e:
+            st.error(f"Error rendering graph: {e}")
+            st.write("**Fallback - Graph Structure:**")
+            st.code("schema_context → chart_detection → sql_generation → sql_execution → validation → answer_generation → judge → END")
+            
+            # try to show raw mermaid if available
+            try:
+                graph = st.session_state.workflow.get_graph()
+                graph_mermaid = graph.draw_mermaid()
+                if graph_mermaid:
+                    with st.expander("Raw Mermaid Code (for debugging)"):
+                        st.code(graph_mermaid, language="mermaid")
+            except:
+                pass
+    else:
+        st.warning("Workflow not initialized")
