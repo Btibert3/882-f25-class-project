@@ -4,7 +4,6 @@ from google.cloud import secretmanager
 import langsmith as ls
 from langsmith import uuid7
 from workflow import create_workflow, State
-import streamlit_mermaid as stmd
 import os
 
 # --- setup ---
@@ -41,19 +40,17 @@ if "workflow" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# tabs
-tab_query, tab_graph = st.tabs(["Query", "Workflow Graph"])
+# replay messages
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-# --- Query Tab ---
-with tab_query:
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    if prompt := st.chat_input("Ask a question about the database..."):
-        st.chat_message("user").markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
+# react to user input
+if prompt := st.chat_input("Ask a question about the database..."):
+    st.chat_message("user").markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    try:
         with st.chat_message("assistant"):
             with st.spinner("Processing..."):
                 initial_state: State = {
@@ -89,47 +86,18 @@ with tab_query:
                 if debug_mode:
                     st.divider()
                     st.subheader("Debug Information")
-                    
                     st.write("**Judge Evaluation:**")
                     st.info(result.get("judge_evaluation", "N/A"))
                     st.write(f"**Passed:** {result.get('judge_passed', False)}")
-                    
                     with st.expander("Full State"):
                         state_dict = {k: str(v) if isinstance(v, pd.DataFrame) else v for k, v in result.items()}
                         st.json(state_dict)
-                    
                     st.write("**LangSmith Tracing:**")
                     st.info("Check LangSmith dashboard for detailed workflow tracing")
-            
-            st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
-
-# --- Workflow Graph Tab ---
-with tab_graph:
-    st.subheader("LangGraph Workflow")
-    
-    if "workflow" in st.session_state:
-        try:
-            graph = st.session_state.workflow.get_graph()
-            graph_mermaid = graph.draw_mermaid()
-            
-            if graph_mermaid:
-                # try rendering with streamlit-mermaid
-                try:
-                    stmd.st_mermaid(graph_mermaid)
-                except Exception as render_err:
-                    st.warning("Mermaid component not rendering. Showing code instead.")
-                    # show as markdown code block which some viewers can render
-                    st.markdown(f"```mermaid\n{graph_mermaid}\n```")
-                
-                # always show raw code
-                with st.expander("View Raw Mermaid Code"):
-                    st.code(graph_mermaid, language="mermaid")
-                    st.caption("Copy this code to https://mermaid.live/ to view the graph")
-            else:
-                st.warning("Mermaid graph is empty")
-        except Exception as e:
-            st.error(f"Error getting graph: {e}")
-            st.write("**Graph Structure:**")
-            st.code("schema_context → chart_detection → sql_generation → sql_execution → validation → answer_generation → judge → END")
-    else:
-        st.warning("Workflow not initialized")
+        
+        st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
+    except Exception as e:
+        error_msg = f"Error processing query: {e}"
+        with st.chat_message("assistant"):
+            st.error(error_msg)
+        st.session_state.messages.append({"role": "assistant", "content": error_msg})

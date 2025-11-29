@@ -7,5 +7,4 @@ langgraph>=1.0.2
 langchain>=1.0.3
 langchain-google-vertexai>=2.1.2
 langsmith>=0.1.0
-streamlit-mermaid>=0.0.1
 
