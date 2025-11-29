@@ -56,7 +56,8 @@ if prompt := st.chat_input("Ask a question about the database..."):
                 initial_state: State = {
                     "question": prompt,
                     "request_chart": False,
-                    "schema_context": "",
+                    "table_records": [],
+                    "col_records": [],
                     "sql_query": "",
                     "query_results": pd.DataFrame(),
                     "validation": "",

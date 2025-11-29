@@ -21,7 +21,8 @@ llm = ChatVertexAI(
 class State(TypedDict):
     question: str
     request_chart: bool
-    schema_context: str
+    table_records: list[dict]
+    col_records: list[dict]
     sql_query: str
     query_results: Any
     validation: str
@@ -30,7 +31,7 @@ class State(TypedDict):
     judge_passed: bool
 
 # --- helpers ---
-def get_schema_context(md) -> str:
+def get_schema_context(md):
     """Get database schema for SQL generation."""
     # get tables
     tables_query = """
@@ -54,15 +55,7 @@ def get_schema_context(md) -> str:
     schema_cols = md.sql(cols_query).df()
     col_records = schema_cols.to_dict(orient='records')
     
-    # format for LLM context
-    schema_info = []
-    for table in table_records:
-        full_name = f"{table['table_schema']}.{table['table_name']}"
-        cols = [c for c in col_records if c['table_schema'] == table['table_schema'] and c['table_name'] == table['table_name']]
-        cols_str = ", ".join([f"{c['column_name']} ({c['data_type']})" for c in cols[:15]])
-        schema_info.append(f"Table: {full_name}\nColumns: {cols_str}\n")
-    
-    return "\n".join(schema_info)
+    return table_records, col_records
 
 @tool
 def execute_sql(query: str, md_token: str) -> str:
@@ -81,8 +74,8 @@ def execute_sql(query: str, md_token: str) -> str:
 def schema_context_node(state: State, md_token: str) -> State:
     """Get database schema context."""
     md = duckdb.connect(f'md:?motherduck_token={md_token}')
-    schema_context = get_schema_context(md)
-    return {**state, "schema_context": schema_context}
+    table_records, col_records = get_schema_context(md)
+    return {**state, "table_records": table_records, "col_records": col_records}
 
 def chart_detection_node(state: State) -> State:
     """Detect if user wants a chart."""
@@ -99,14 +92,19 @@ def chart_detection_node(state: State) -> State:
 def sql_generation_node(state: State) -> State:
     """Generate SQL from question."""
     question = state["question"]
-    schema_context = state.get("schema_context", "")
+    table_records = state.get("table_records", [])
+    col_records = state.get("col_records", [])
     
-    prompt = f"""Generate SQL to answer: {question}
+    prompt = f"""### Tables in the database
+{table_records}
 
-Schema:
-{schema_context}
+### Column level detail in the database
+{col_records}
 
-Return ONLY the SQL query."""
+### User prompt
+{question}
+
+### SQL query to answer the question above based on the database schema"""
     
     resp = llm.invoke(prompt)
     sql_query = resp.content.strip()
