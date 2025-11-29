@@ -321,7 +321,7 @@ def nfl_article_rag_evals():
                 ],
                 experiment_prefix=EXPERIMENT_NAME,
                 description="RAG pipeline evaluation with Precision, Recall, MRR, and NDCG metrics",
-                max_concurrency=4,
+                max_concurrency=5,
             )
             
             print(f"Successfully created experiment '{EXPERIMENT_NAME}' via evaluate()")
