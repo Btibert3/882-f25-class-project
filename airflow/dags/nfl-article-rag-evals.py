@@ -240,7 +240,7 @@ def nfl_article_rag_evals():
                 evaluators=[precision_evaluator, recall_evaluator, mrr_evaluator, ndcg_evaluator],
                 experiment_prefix=EXPERIMENT_NAME,
                 description="RAG pipeline evaluation with Precision, Recall, MRR, and NDCG metrics",
-                max_concurrency=2,
+                max_concurrency=1,
             )
             
             print(f"\nSuccessfully created experiment '{EXPERIMENT_NAME}'")
