@@ -113,25 +113,23 @@ with tab_graph:
             graph_mermaid = graph.draw_mermaid()
             
             if graph_mermaid:
-                stmd.st_mermaid(graph_mermaid)
+                # try rendering with streamlit-mermaid
+                try:
+                    stmd.st_mermaid(graph_mermaid)
+                except Exception as render_err:
+                    st.warning("Mermaid component not rendering. Showing code instead.")
+                    # show as markdown code block which some viewers can render
+                    st.markdown(f"```mermaid\n{graph_mermaid}\n```")
                 
-                with st.expander("Raw Mermaid Code"):
+                # always show raw code
+                with st.expander("View Raw Mermaid Code"):
                     st.code(graph_mermaid, language="mermaid")
+                    st.caption("Copy this code to https://mermaid.live/ to view the graph")
             else:
                 st.warning("Mermaid graph is empty")
         except Exception as e:
-            st.error(f"Error rendering graph: {e}")
-            st.write("**Fallback - Graph Structure:**")
+            st.error(f"Error getting graph: {e}")
+            st.write("**Graph Structure:**")
             st.code("schema_context → chart_detection → sql_generation → sql_execution → validation → answer_generation → judge → END")
-            
-            # try to show raw mermaid if available
-            try:
-                graph = st.session_state.workflow.get_graph()
-                graph_mermaid = graph.draw_mermaid()
-                if graph_mermaid:
-                    with st.expander("Raw Mermaid Code (for debugging)"):
-                        st.code(graph_mermaid, language="mermaid")
-            except:
-                pass
     else:
         st.warning("Workflow not initialized")
