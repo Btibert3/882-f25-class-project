@@ -63,7 +63,9 @@ if prompt := st.chat_input("Ask a question about the database..."):
                     "validation": "",
                     "answer": "",
                     "judge_evaluation": "",
-                    "judge_passed": False
+                    "judge_passed": False,
+                    "needs_retry": False,
+                    "retry_count": 0
                 }
                 
                 with ls.tracing_context(enabled=True, run_id=str(uuid7())):

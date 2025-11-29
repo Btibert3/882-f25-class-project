@@ -30,6 +30,8 @@ class State(TypedDict):
     answer: str
     judge_evaluation: str
     judge_passed: bool
+    needs_retry: bool
+    retry_count: int
 
 # --- structured output for SQL ---
 class SQLQuery(BaseModel):
@@ -109,6 +111,8 @@ def sql_generation_node(state: State) -> State:
     question = state["question"]
     table_records = state.get("table_records", [])
     col_records = state.get("col_records", [])
+    previous_sql = state.get("sql_query", "")
+    validation_feedback = state.get("validation", "")
     
     prompt = f"""### Tables in the database
 {table_records}
@@ -117,7 +121,20 @@ def sql_generation_node(state: State) -> State:
 {col_records}
 
 ### User prompt
-{question}
+{question}"""
+    
+    if validation_feedback and "No results" in validation_feedback:
+        prompt += f"""
+
+### Previous SQL attempt (returned no results):
+{previous_sql}
+
+### Feedback:
+{validation_feedback}
+
+Generate a corrected SQL query:"""
+    else:
+        prompt += """
 
 ### SQL query to answer the question above based on the database schema"""
     
@@ -125,6 +142,9 @@ def sql_generation_node(state: State) -> State:
     structured_llm = llm.with_structured_output(SQLQuery)
     resp = structured_llm.invoke(prompt)
     sql_query = resp.sql.strip()
+    
+    # clean up any remaining backticks or markdown
+    sql_query = sql_query.replace("```sql", "").replace("```", "").strip()
     
     return {**state, "sql_query": sql_query}
 
@@ -144,13 +164,15 @@ def sql_execution_node(state: State, md_token: str) -> State:
     return {**state, "query_results": df}
 
 def validation_node(state: State) -> State:
-    """Validate query results."""
+    """Validate query results and determine if retry needed."""
     question = state["question"]
     sql_query = state.get("sql_query", "")
     query_results = state.get("query_results")
+    retry_count = state.get("retry_count", 0)
     
     if query_results is None or query_results.empty:
-        validation = "No results returned."
+        validation = "No results returned. SQL may need correction."
+        needs_retry = retry_count < 2  # limit to 2 retries
     else:
         prompt = f"""Validate if this SQL answers the question.
 
@@ -163,8 +185,9 @@ Sample: {query_results.head(2).to_string()}
 Brief validation:"""
         resp = llm.invoke(prompt)
         validation = resp.content
+        needs_retry = False
     
-    return {**state, "validation": validation}
+    return {**state, "validation": validation, "needs_retry": needs_retry, "retry_count": retry_count + 1 if needs_retry else retry_count}
 
 def answer_generation_node(state: State) -> State:
     """Generate answer from results."""
@@ -228,12 +251,16 @@ def create_workflow(md_token: str):
     graph.add_node("answer_generation", answer_generation_node)
     graph.add_node("judge", judge_node)
     
+    def should_retry(state: State) -> str:
+        """Check if SQL needs to be regenerated."""
+        return "sql_generation" if state.get("needs_retry", False) else "answer_generation"
+    
     graph.set_entry_point("schema_context")
     graph.add_edge("schema_context", "chart_detection")
     graph.add_edge("chart_detection", "sql_generation")
     graph.add_edge("sql_generation", "sql_execution")
     graph.add_edge("sql_execution", "validation")
-    graph.add_edge("validation", "answer_generation")
+    graph.add_conditional_edges("validation", should_retry)
     graph.add_edge("answer_generation", "judge")
     graph.add_edge("judge", END)
     
