@@ -222,7 +222,7 @@ def nfl_article_rag_evals():
     
     @task
     def aggregate_results(results: list) -> dict:
-        """Aggregate metrics and register experiment in LangSmith."""
+        """Aggregate metrics and register experiment using LangSmith evaluate()."""
         ls_api_key = os.environ.get("LANGSMITH_API_KEY")
         if not ls_api_key:
             raise ValueError("LANGSMITH_API_KEY environment variable not set")
@@ -230,7 +230,7 @@ def nfl_article_rag_evals():
         client = Client(api_key=ls_api_key)
         ctx = get_current_context()
         
-        # Compute aggregate metrics
+        # Compute aggregate metrics from mapped task results (for display)
         valid_results = [r for r in results if "metrics" in r]
         if not valid_results:
             raise ValueError("No valid evaluation results to aggregate")
@@ -248,58 +248,80 @@ def nfl_article_rag_evals():
         }
         
         print("=" * 80)
-        print("AGGREGATE METRICS")
+        print("AGGREGATE METRICS (from mapped tasks)")
         print("=" * 80)
         for metric, value in aggregate_metrics.items():
             print(f"{metric}: {value:.4f}")
         print("=" * 80)
         
-        # Register experiment by creating runs linked to dataset examples
-        dag_run_id = ctx["dag_run"].run_id
-        dataset_id = valid_results[0]["dataset_id"]
-        
-        print(f"\nRegistering {len(valid_results)} runs to create experiment '{EXPERIMENT_NAME}'...")
-        
-        # Create runs for each result, which should automatically create an experiment
-        for result in valid_results:
+        # Define the function that evaluate() will call
+        def rag_target_function(inputs: dict) -> dict:
+            """Function that evaluate() calls - invokes Cloud Function."""
+            question = inputs["question"]
             try:
-                # Create run linked to the dataset example
-                run = client.create_run(
-                    name=f"{EXPERIMENT_NAME}-{result['example_id'][:8]}",
-                    run_type="chain",
-                    inputs={"question": result["question"]},
-                    outputs={
-                        "answer": result.get("answer", ""),
-                        "expected_article_id": result["expected_article_id"],
-                        **result["metrics"],  # Include metrics in outputs
-                    },
-                    extra={
-                        "dag_run_id": dag_run_id,
-                        **result["metrics"],
-                        "relevant_retrieved": result["relevant_retrieved"],
-                        "total_chunks": result["total_chunks"],
-                    },
-                    dataset_id=dataset_id,
-                    reference_example_id=result["example_id"],  # Link to dataset example
-                )
-                
-                # Add feedback scores for each metric
-                for metric_name, metric_value in result["metrics"].items():
-                    client.create_feedback(
-                        run_id=run.id if hasattr(run, 'id') else None,
-                        key=metric_name,
-                        score=metric_value,
-                        source_type="api",
-                    )
-                
-                print(f"  Registered run for example {result['example_id'][:8]}")
+                response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
+                return {
+                    "answer": response.get("answer", ""),
+                    "articles": response.get("articles", []),
+                    "contexts": response.get("contexts", []),
+                }
             except Exception as e:
-                print(f"ERROR: Could not register run for example {result['example_id']}: {str(e)}")
-                import traceback
-                print(traceback.format_exc())
+                print(f"ERROR in rag_target_function for '{question}': {str(e)}")
+                return {
+                    "answer": f"ERROR: {str(e)}",
+                    "articles": [],
+                    "contexts": [],
+                }
         
-        print(f"\nExperiment '{EXPERIMENT_NAME}' registered with {len(valid_results)} runs")
-        print(f"View results in LangSmith dataset: {DATASET_NAME}")
+        # Define evaluators
+        def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            expected_article_id = reference_outputs.get("expected_article_id")
+            retrieved_articles = outputs.get("articles", [])
+            precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
+            return {"key": f"precision@{K}", "score": precision}
+        
+        def recall_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            expected_article_id = reference_outputs.get("expected_article_id")
+            total_chunks = reference_outputs.get("total_chunks", 1)
+            retrieved_articles = outputs.get("articles", [])
+            recall = compute_recall_at_k(retrieved_articles, expected_article_id, total_chunks, K)
+            return {"key": f"recall@{K}", "score": recall}
+        
+        def mrr_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            expected_article_id = reference_outputs.get("expected_article_id")
+            retrieved_articles = outputs.get("articles", [])
+            mrr = compute_mrr(retrieved_articles, expected_article_id)
+            return {"key": "mrr", "score": mrr}
+        
+        def ndcg_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            expected_article_id = reference_outputs.get("expected_article_id")
+            total_chunks = reference_outputs.get("total_chunks", 1)
+            contexts = outputs.get("contexts", [])
+            ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
+            return {"key": f"ndcg@{K}", "score": ndcg}
+        
+        # Use evaluate() - this is the proper LangSmith way
+        print(f"\nRunning evaluation via LangSmith evaluate()...")
+        print(f"Note: This will call the Cloud Function again for proper tracing/experiment creation.")
+        
+        try:
+            evaluate_result = client.evaluate(
+                rag_target_function,
+                data=DATASET_NAME,
+                evaluators=[precision_evaluator, recall_evaluator, mrr_evaluator, ndcg_evaluator],
+                experiment_prefix=EXPERIMENT_NAME,
+                description="RAG pipeline evaluation with Precision, Recall, MRR, and NDCG metrics",
+                max_concurrency=2,
+            )
+            
+            print(f"\nSuccessfully created experiment '{EXPERIMENT_NAME}'")
+            print(f"View results in LangSmith dataset: {DATASET_NAME}")
+            
+        except Exception as e:
+            print(f"ERROR: Could not create experiment: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
         
         return {
             "aggregate_metrics": aggregate_metrics,
