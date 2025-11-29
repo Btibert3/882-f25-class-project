@@ -83,7 +83,7 @@ def execute_sql(query: str, md_token: str) -> str:
         if df.empty:
             return json.dumps({"status": "success", "rows": 0, "data": []})
         result = df.to_dict(orient='records')
-        return json.dumps({"status": "success", "rows": len(result), "data": result[:100]})
+        return json.dumps({"status": "success", "rows": len(result), "data": result})
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
@@ -199,16 +199,17 @@ def answer_generation_node(state: State) -> State:
     if query_results is None or query_results.empty:
         answer = "No data found. Try rephrasing your question."
     else:
-        results_str = query_results.head(10).to_string() if len(query_results) > 10 else query_results.to_string()
+        results_str = query_results.to_string()
+        
         prompt = f"""Answer this question based on the results:
 
 Question: {question}
 SQL: {sql_query}
 Validation: {validation}
-Results:
+Results ({len(query_results)} rows):
 {results_str}
 
-Provide a clear answer:"""
+Provide a clear answer with all data points:"""
         resp = llm.invoke(prompt)
         answer = resp.content
     
