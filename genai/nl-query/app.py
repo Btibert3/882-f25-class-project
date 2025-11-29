@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 from google.cloud import secretmanager
 import langsmith as ls
+from langsmith import uuid7
 from workflow import create_workflow, State
+import streamlit_mermaid as stmd
 import os
 
 # --- setup ---
@@ -33,11 +35,19 @@ st.caption("Ask questions about your NFL data in plain English")
 
 debug_mode = st.sidebar.checkbox("Debug Mode", value=False)
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
+# workflow graph in sidebar
+st.sidebar.header("Workflow Graph")
 if "workflow" not in st.session_state:
     st.session_state.workflow = create_workflow(md_token)
+
+try:
+    graph_mermaid = st.session_state.workflow.get_graph().draw_mermaid()
+    stmd.st_mermaid(graph_mermaid)
+except:
+    st.sidebar.write("Graph not available")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -61,7 +71,7 @@ if prompt := st.chat_input("Ask a question about the database..."):
                 "judge_passed": False
             }
             
-            with ls.tracing_context(enabled=True):
+            with ls.tracing_context(enabled=True, run_id=str(uuid7())):
                 result = st.session_state.workflow.invoke(initial_state)
             
             # answer
@@ -92,11 +102,7 @@ if prompt := st.chat_input("Ask a question about the database..."):
                     st.json(state_dict)
                 
                 st.write("**Workflow Graph:**")
-                try:
-                    graph_mermaid = st.session_state.workflow.get_graph().draw_mermaid()
-                    st.code(graph_mermaid, language="mermaid")
-                except:
-                    st.write("schema_context → chart_detection → sql_generation → sql_execution → validation → answer_generation → judge → END")
+                st.info("See sidebar for interactive graph visualization")
                 
                 st.write("**LangSmith Tracing:**")
                 st.info("Check LangSmith dashboard for detailed workflow tracing")
