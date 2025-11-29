@@ -17,6 +17,7 @@ SECRET_ID_LANGSMITH = 'LangSmith'   #<---------- this is the name of the secret 
 version_id = 'latest'
 VECTOR_INDEX = 'nfl-articles'
 VEC_SIZE = 768
+NUM_RESULTS = 25
 
 # instantiate the secret manager service
 sm = secretmanager.SecretManagerServiceClient()
@@ -74,7 +75,7 @@ def retrieve_node(state: State) -> State:
     # pinecone
     res = index.query(
         vector=embedding,
-        top_k=10,
+        top_k=NUM_RESULTS,
         include_metadata=True,
     )
 
