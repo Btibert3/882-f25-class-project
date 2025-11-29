@@ -1,6 +1,7 @@
 from langchain_google_vertexai import ChatVertexAI
 from langgraph.graph import StateGraph, END
 from langchain_core.tools import tool
+from pydantic import BaseModel
 from typing import TypedDict, Any
 import duckdb
 import pandas as pd
@@ -29,6 +30,10 @@ class State(TypedDict):
     answer: str
     judge_evaluation: str
     judge_passed: bool
+
+# --- structured output for SQL ---
+class SQLQuery(BaseModel):
+    sql: str
 
 # --- helpers ---
 def get_schema_context(md):
@@ -70,7 +75,7 @@ def get_schema_context(md):
 @tool
 def execute_sql(query: str, md_token: str) -> str:
     """Execute SQL query and return results as JSON."""
-    md = duckdb.connect(f'md:?motherduck_token={md_token}')
+    md = duckdb.connect(f'md:nfl?motherduck_token={md_token}')
     try:
         df = md.sql(query).df()
         if df.empty:
@@ -116,14 +121,10 @@ def sql_generation_node(state: State) -> State:
 
 ### SQL query to answer the question above based on the database schema"""
     
-    resp = llm.invoke(prompt)
-    sql_query = resp.content.strip()
-    
-    if sql_query.startswith("```"):
-        sql_query = sql_query.split("```")[1]
-        if sql_query.startswith("sql"):
-            sql_query = sql_query[3:]
-        sql_query = sql_query.strip()
+    # use structured output to get clean SQL string
+    structured_llm = llm.with_structured_output(SQLQuery)
+    resp = structured_llm.invoke(prompt)
+    sql_query = resp.sql.strip()
     
     return {**state, "sql_query": sql_query}
 
