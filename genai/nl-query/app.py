@@ -50,6 +50,7 @@ with tab_query:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    if prompt := st.chat_input("Ask a question about the database..."):
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
         
