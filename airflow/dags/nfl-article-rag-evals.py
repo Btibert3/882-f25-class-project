@@ -144,115 +144,13 @@ def nfl_article_rag_evals():
         return {"dataset_id": str(dataset.id), "exists": False}  # Convert UUID to string
     
     @task
-    def load_evaluation_examples(dataset_info: dict):
-        """Load examples from LangSmith dataset."""
+    def run_evaluation(dataset_info: dict) -> dict:
+        """Run evaluation using LangSmith evaluate() - handles everything."""
         ls_api_key = os.environ.get("LANGSMITH_API_KEY")
         if not ls_api_key:
             raise ValueError("LANGSMITH_API_KEY environment variable not set")
         
         client = Client(api_key=ls_api_key)
-        dataset_id = dataset_info["dataset_id"]
-        
-        # Fetch examples from dataset
-        examples = list(client.list_examples(dataset_id=dataset_id))
-        
-        # Format for downstream tasks
-        formatted_examples = []
-        for ex in examples:
-            formatted_examples.append({
-                "dataset_id": dataset_id,
-                "example_id": str(ex.id),
-                "question": ex.inputs["question"],
-                "expected_article_id": ex.outputs["expected_article_id"],
-                "total_chunks": ex.outputs["total_chunks"]
-            })
-        
-        print(f"Loaded {len(formatted_examples)} examples from LangSmith dataset")
-        return formatted_examples
-    
-    @task(retries=1, retry_delay=timedelta(seconds=30))
-    def evaluate_example(example: dict) -> dict:
-        """Evaluate a single example: call RAG function and compute metrics."""
-        question = example["question"]
-        expected_article_id = example["expected_article_id"]
-        total_chunks = example["total_chunks"]
-        
-        print(f"Evaluating: {question}")
-        print(f"  Expected article_id: {expected_article_id}, Total chunks: {total_chunks}")
-        
-        # Call RAG Cloud Function
-        response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
-        
-        # Extract retrieved contexts and article_ids
-        contexts = response.get("contexts", [])
-        retrieved_article_ids = [ctx.get("article_id") for ctx in contexts if ctx.get("article_id") is not None]
-        
-        print(f"  Retrieved {len(retrieved_article_ids)} chunks (top {K} considered)")
-        
-        # Compute metrics
-        precision = compute_precision_at_k(retrieved_article_ids, expected_article_id, K)
-        recall = compute_recall_at_k(retrieved_article_ids, expected_article_id, total_chunks, K)
-        mrr = compute_mrr(retrieved_article_ids, expected_article_id)
-        ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
-        
-        # Count relevant chunks retrieved
-        relevant_retrieved = sum(1 for aid in retrieved_article_ids[:K] if aid == expected_article_id)
-        
-        print(f"  Precision@{K}: {precision:.4f} ({relevant_retrieved}/{K} relevant)")
-        print(f"  Recall@{K}: {recall:.4f} ({relevant_retrieved}/{total_chunks} relevant)")
-        print(f"  MRR: {mrr:.4f}")
-        print(f"  NDCG@{K}: {ndcg:.4f}")
-        
-        return {
-            "dataset_id": example["dataset_id"],
-            "example_id": example["example_id"],
-            "question": question,
-            "expected_article_id": expected_article_id,
-            "total_chunks": total_chunks,
-            "metrics": {
-                f"precision@{K}": precision,
-                f"recall@{K}": recall,
-                "mrr": mrr,
-                f"ndcg@{K}": ndcg,
-            },
-            "retrieved_count": len(retrieved_article_ids),
-            "relevant_retrieved": relevant_retrieved,
-            "answer": response.get("answer", ""),
-        }
-    
-    @task
-    def aggregate_results(results: list) -> dict:
-        """Aggregate metrics and register experiment using LangSmith evaluate()."""
-        ls_api_key = os.environ.get("LANGSMITH_API_KEY")
-        if not ls_api_key:
-            raise ValueError("LANGSMITH_API_KEY environment variable not set")
-        
-        client = Client(api_key=ls_api_key)
-        ctx = get_current_context()
-        
-        # Compute aggregate metrics from mapped task results (for display)
-        valid_results = [r for r in results if "metrics" in r]
-        if not valid_results:
-            raise ValueError("No valid evaluation results to aggregate")
-        
-        avg_precision = sum(r["metrics"][f"precision@{K}"] for r in valid_results) / len(valid_results)
-        avg_recall = sum(r["metrics"][f"recall@{K}"] for r in valid_results) / len(valid_results)
-        avg_mrr = sum(r["metrics"]["mrr"] for r in valid_results) / len(valid_results)
-        avg_ndcg = sum(r["metrics"][f"ndcg@{K}"] for r in valid_results) / len(valid_results)
-        
-        aggregate_metrics = {
-            f"avg_precision@{K}": avg_precision,
-            f"avg_recall@{K}": avg_recall,
-            "avg_mrr": avg_mrr,
-            f"avg_ndcg@{K}": avg_ndcg,
-        }
-        
-        print("=" * 80)
-        print("AGGREGATE METRICS (from mapped tasks)")
-        print("=" * 80)
-        for metric, value in aggregate_metrics.items():
-            print(f"{metric}: {value:.4f}")
-        print("=" * 80)
         
         # Define the function that evaluate() will call
         def rag_target_function(inputs: dict) -> dict:
@@ -300,9 +198,8 @@ def nfl_article_rag_evals():
             ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
             return {"key": f"ndcg@{K}", "score": ndcg}
         
-        # Use evaluate() - this is the proper LangSmith way
-        print(f"\nRunning evaluation via LangSmith evaluate()...")
-        print(f"Note: This will call the Cloud Function again for proper tracing/experiment creation.")
+        # Run evaluation - this handles everything
+        print(f"\nRunning evaluation on dataset '{DATASET_NAME}'...")
         
         try:
             evaluate_result = client.evaluate(
@@ -317,23 +214,20 @@ def nfl_article_rag_evals():
             print(f"\nSuccessfully created experiment '{EXPERIMENT_NAME}'")
             print(f"View results in LangSmith dataset: {DATASET_NAME}")
             
+            return {
+                "experiment_name": EXPERIMENT_NAME,
+                "status": "success",
+            }
+            
         except Exception as e:
             print(f"ERROR: Could not create experiment: {str(e)}")
             import traceback
             print(traceback.format_exc())
             raise
-        
-        return {
-            "aggregate_metrics": aggregate_metrics,
-            "num_examples": len(valid_results),
-            "experiment_name": EXPERIMENT_NAME,
-        }
     
     # Pipeline flow
     dataset_info = setup_dataset()
-    examples = load_evaluation_examples(dataset_info)
-    evaluation_results = evaluate_example.expand(example=examples)
-    final_results = aggregate_results(evaluation_results)
+    evaluation_result = run_evaluation(dataset_info)
 
 
 nfl_article_rag_evals()
