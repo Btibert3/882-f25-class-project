@@ -261,10 +261,11 @@ def nfl_article_rag_evals():
         
         print(f"\nRegistering {len(valid_results)} runs to LangSmith experiment '{EXPERIMENT_NAME}'...")
         
+        registered_count = 0
         for result in valid_results:
             try:
-                # Create run for each example evaluation
-                client.create_run(
+                # Create run for each example evaluation, linking to the dataset example
+                run = client.create_run(
                     name=f"{EXPERIMENT_NAME}-{dag_run_id}",
                     run_type="chain",
                     inputs={"question": result["question"]},
@@ -281,12 +282,17 @@ def nfl_article_rag_evals():
                         "total_chunks": result["total_chunks"],
                     },
                     dataset_id=dataset_id,
+                    reference_example_id=result["example_id"],  # Link to specific example
                     project_name=EXPERIMENT_NAME,
                 )
+                registered_count += 1
+                print(f"  Registered run for example {result['example_id']}: {run.id}")
             except Exception as e:
-                print(f"Warning: Could not register run for example {result['example_id']}: {str(e)}")
+                print(f"ERROR: Could not register run for example {result['example_id']}: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
         
-        print(f"Successfully registered experiment runs")
+        print(f"\nSuccessfully registered {registered_count}/{len(valid_results)} experiment runs")
         print(f"\nView results in LangSmith:")
         print(f"  Dataset: {DATASET_NAME}")
         print(f"  Experiment/Project: {EXPERIMENT_NAME}")
