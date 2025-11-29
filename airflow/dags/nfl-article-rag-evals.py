@@ -97,7 +97,7 @@ def nfl_article_rag_evals():
         try:
             dataset = client.read_dataset(dataset_name=DATASET_NAME)
             print(f"Dataset '{DATASET_NAME}' already exists (ID: {dataset.id})")
-            return {"dataset_id": dataset.id, "exists": True}
+            return {"dataset_id": str(dataset.id), "exists": True}  # Convert UUID to string
         except Exception:
             print(f"Dataset '{DATASET_NAME}' does not exist, creating it...")
         
@@ -141,7 +141,7 @@ def nfl_article_rag_evals():
             )
         
         print(f"Created dataset '{DATASET_NAME}' (ID: {dataset.id}) with {len(examples)} examples")
-        return {"dataset_id": dataset.id, "exists": False}
+        return {"dataset_id": str(dataset.id), "exists": False}  # Convert UUID to string
     
     @task
     def load_evaluation_examples(dataset_info: dict):
