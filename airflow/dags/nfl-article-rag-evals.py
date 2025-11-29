@@ -259,12 +259,21 @@ def nfl_article_rag_evals():
         def rag_target_function(inputs: dict) -> dict:
             """Wrapper function for evaluate() that calls our Cloud Function."""
             question = inputs["question"]
-            response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
-            return {
-                "answer": response.get("answer", ""),
-                "articles": response.get("articles", []),
-                "contexts": response.get("contexts", []),
-            }
+            try:
+                response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
+                return {
+                    "answer": response.get("answer", ""),
+                    "articles": response.get("articles", []),
+                    "contexts": response.get("contexts", []),
+                }
+            except Exception as e:
+                print(f"ERROR calling Cloud Function for question '{question}': {str(e)}")
+                # Return empty/default values so evaluators can still compute metrics (they'll be 0)
+                return {
+                    "answer": f"ERROR: {str(e)}",
+                    "articles": [],
+                    "contexts": [],
+                }
         
         # Define evaluators that compute our metrics
         def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
