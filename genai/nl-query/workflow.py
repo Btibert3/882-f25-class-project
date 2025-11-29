@@ -33,26 +33,36 @@ class State(TypedDict):
 # --- helpers ---
 def get_schema_context(md):
     """Get database schema for SQL generation."""
-    # get tables
+    # get all tables first to see what we have
     tables_query = """
     SELECT table_schema, table_name
     FROM information_schema.tables
-    WHERE table_schema IN ('nfl.stage', 'nfl.gold', 'nfl.raw', 'nfl.mlops', 'nfl.ai_datasets')
     ORDER BY table_schema, table_name
-    LIMIT 30
+    LIMIT 100
     """
     schema_tables = md.sql(tables_query).df()
+    
+    # filter for nfl schemas
+    if not schema_tables.empty:
+        nfl_schemas = ['stage', 'gold', 'raw', 'mlops', 'ai_datasets']
+        schema_tables = schema_tables[schema_tables['table_schema'].isin(nfl_schemas)]
+    
     table_records = schema_tables.to_dict(orient="records")
     
     # get columns
     cols_query = """
     SELECT table_schema, table_name, column_name, data_type, ordinal_position
     FROM information_schema.columns
-    WHERE table_schema IN ('nfl.stage', 'nfl.gold', 'nfl.raw', 'nfl.mlops', 'nfl.ai_datasets')
     ORDER BY table_name, ordinal_position
-    LIMIT 200
+    LIMIT 500
     """
     schema_cols = md.sql(cols_query).df()
+    
+    # filter for nfl schemas
+    if not schema_cols.empty:
+        nfl_schemas = ['stage', 'gold', 'raw', 'mlops', 'ai_datasets']
+        schema_cols = schema_cols[schema_cols['table_schema'].isin(nfl_schemas)]
+    
     col_records = schema_cols.to_dict(orient='records')
     
     return table_records, col_records
@@ -73,7 +83,7 @@ def execute_sql(query: str, md_token: str) -> str:
 # --- nodes ---
 def schema_context_node(state: State, md_token: str) -> State:
     """Get database schema context."""
-    md = duckdb.connect(f'md:?motherduck_token={md_token}')
+    md = duckdb.connect(f'md:nfl?motherduck_token={md_token}')
     table_records, col_records = get_schema_context(md)
     return {**state, "table_records": table_records, "col_records": col_records}
 
