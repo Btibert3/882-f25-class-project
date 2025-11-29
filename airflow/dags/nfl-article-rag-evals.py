@@ -222,13 +222,14 @@ def nfl_article_rag_evals():
     
     @task
     def aggregate_results(results: list) -> dict:
-        """Aggregate metrics and register experiment in LangSmith."""
+        """Aggregate metrics and register experiment in LangSmith using evaluate()."""
         ls_api_key = os.environ.get("LANGSMITH_API_KEY")
         if not ls_api_key:
             raise ValueError("LANGSMITH_API_KEY environment variable not set")
         
         client = Client(api_key=ls_api_key)
         ctx = get_current_context()
+        dataset_id = results[0]["dataset_id"] if results else None
         
         # Compute aggregate metrics
         valid_results = [r for r in results if "metrics" in r]
@@ -254,65 +255,83 @@ def nfl_article_rag_evals():
             print(f"{metric}: {value:.4f}")
         print("=" * 80)
         
-        # Register experiment in LangSmith
-        dag_run_id = ctx["dag_run"].run_id
-        timestamp = datetime.now().isoformat()
-        dataset_id = valid_results[0]["dataset_id"]
+        # Create a target function for evaluate() that matches our Cloud Function interface
+        def rag_target_function(inputs: dict) -> dict:
+            """Wrapper function for evaluate() that calls our Cloud Function."""
+            question = inputs["question"]
+            response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
+            return {
+                "answer": response.get("answer", ""),
+                "articles": response.get("articles", []),
+                "contexts": response.get("contexts", []),
+            }
         
-        print(f"\nCreating experiment '{EXPERIMENT_NAME}' in LangSmith...")
+        # Define evaluators that compute our metrics
+        def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            """Compute Precision@25."""
+            expected_article_id = reference_outputs.get("expected_article_id")
+            total_chunks = reference_outputs.get("total_chunks", 1)
+            retrieved_articles = outputs.get("articles", [])
+            precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
+            return {"key": f"precision@{K}", "score": precision}
         
-        # Try to create or get experiment
+        def recall_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            """Compute Recall@25."""
+            expected_article_id = reference_outputs.get("expected_article_id")
+            total_chunks = reference_outputs.get("total_chunks", 1)
+            retrieved_articles = outputs.get("articles", [])
+            recall = compute_recall_at_k(retrieved_articles, expected_article_id, total_chunks, K)
+            return {"key": f"recall@{K}", "score": recall}
+        
+        def mrr_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            """Compute MRR."""
+            expected_article_id = reference_outputs.get("expected_article_id")
+            retrieved_articles = outputs.get("articles", [])
+            mrr = compute_mrr(retrieved_articles, expected_article_id)
+            return {"key": "mrr", "score": mrr}
+        
+        def ndcg_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
+            """Compute NDCG@25."""
+            expected_article_id = reference_outputs.get("expected_article_id")
+            total_chunks = reference_outputs.get("total_chunks", 1)
+            contexts = outputs.get("contexts", [])
+            ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
+            return {"key": f"ndcg@{K}", "score": ndcg}
+        
+        # Use evaluate() to create the experiment properly
+        print(f"\nRunning evaluation via LangSmith evaluate() to create experiment...")
         try:
-            # Check if experiment exists for this dataset
-            # Note: LangSmith experiments are typically created via the UI or evaluate() API
-            # For now, we'll create runs and link them to the dataset
-            # The experiment should appear automatically when runs are linked to dataset examples
-            pass
+            evaluate_result = client.evaluate(
+                rag_target_function,
+                data=DATASET_NAME,  # Use dataset name
+                evaluators=[
+                    precision_evaluator,
+                    recall_evaluator,
+                    mrr_evaluator,
+                    ndcg_evaluator,
+                ],
+                experiment_prefix=EXPERIMENT_NAME,
+                description="RAG pipeline evaluation with Precision, Recall, MRR, and NDCG metrics",
+                max_concurrency=4,
+            )
+            
+            print(f"Successfully created experiment '{EXPERIMENT_NAME}' via evaluate()")
+            print(f"Experiment ID: {evaluate_result.experiment_id if hasattr(evaluate_result, 'experiment_id') else 'N/A'}")
+            
         except Exception as e:
-            print(f"Note: {str(e)}")
+            print(f"ERROR: Could not create experiment via evaluate(): {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
         
-        print(f"\nRegistering {len(valid_results)} runs linked to dataset examples...")
-        
-        registered_count = 0
-        for result in valid_results:
-            try:
-                # Create run and link it to the dataset example
-                # This should create an experiment when runs are linked to dataset examples
-                client.create_run(
-                    name=f"{EXPERIMENT_NAME}-{result['example_id'][:8]}",
-                    run_type="chain",
-                    inputs={"question": result["question"]},
-                    outputs={
-                        "answer": result.get("answer", ""),
-                        "expected_article_id": result["expected_article_id"],
-                        **result["metrics"],  # Include metrics in outputs
-                    },
-                    extra={
-                        "dag_run_id": dag_run_id,
-                        "timestamp": timestamp,
-                        **result["metrics"],
-                        "relevant_retrieved": result["relevant_retrieved"],
-                        "total_chunks": result["total_chunks"],
-                    },
-                    dataset_id=dataset_id,
-                    reference_example_id=result["example_id"],  # This links to the dataset example
-                )
-                registered_count += 1
-                print(f"  Registered run for example {result['example_id'][:8]}")
-            except Exception as e:
-                print(f"ERROR: Could not register run: {str(e)}")
-                import traceback
-                print(traceback.format_exc())
-        
-        print(f"\nSuccessfully registered {registered_count}/{len(valid_results)} experiment runs")
         print(f"\nView results in LangSmith:")
         print(f"  Dataset: {DATASET_NAME}")
-        print(f"  Experiment/Project: {EXPERIMENT_NAME}")
+        print(f"  Experiment: {EXPERIMENT_NAME}")
         
         return {
             "aggregate_metrics": aggregate_metrics,
             "num_examples": len(valid_results),
-            "dag_run_id": dag_run_id,
+            "experiment_name": EXPERIMENT_NAME,
         }
     
     # Pipeline flow
