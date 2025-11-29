@@ -171,32 +171,64 @@ def nfl_article_rag_evals():
                     "contexts": [],
                 }
         
-        # Define evaluators
+        # Define evaluators with robust error handling
         def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            expected_article_id = reference_outputs.get("expected_article_id")
-            retrieved_articles = outputs.get("articles", [])
-            precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
-            return {"key": f"precision@{K}", "score": precision}
+            try:
+                expected_article_id = reference_outputs.get("expected_article_id")
+                if expected_article_id is None:
+                    return {"key": f"precision@{K}", "score": 0.0}
+                retrieved_articles = outputs.get("articles", []) or []
+                if not isinstance(retrieved_articles, list):
+                    retrieved_articles = []
+                precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
+                return {"key": f"precision@{K}", "score": precision}
+            except Exception as e:
+                print(f"ERROR in precision_evaluator for '{inputs.get('question', 'unknown')[:50]}': {str(e)}")
+                return {"key": f"precision@{K}", "score": 0.0}
         
         def recall_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            expected_article_id = reference_outputs.get("expected_article_id")
-            total_chunks = reference_outputs.get("total_chunks", 1)
-            retrieved_articles = outputs.get("articles", [])
-            recall = compute_recall_at_k(retrieved_articles, expected_article_id, total_chunks, K)
-            return {"key": f"recall@{K}", "score": recall}
+            try:
+                expected_article_id = reference_outputs.get("expected_article_id")
+                total_chunks = reference_outputs.get("total_chunks", 1) or 1
+                if expected_article_id is None:
+                    return {"key": f"recall@{K}", "score": 0.0}
+                retrieved_articles = outputs.get("articles", []) or []
+                if not isinstance(retrieved_articles, list):
+                    retrieved_articles = []
+                recall = compute_recall_at_k(retrieved_articles, expected_article_id, int(total_chunks), K)
+                return {"key": f"recall@{K}", "score": recall}
+            except Exception as e:
+                print(f"ERROR in recall_evaluator for '{inputs.get('question', 'unknown')[:50]}': {str(e)}")
+                return {"key": f"recall@{K}", "score": 0.0}
         
         def mrr_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            expected_article_id = reference_outputs.get("expected_article_id")
-            retrieved_articles = outputs.get("articles", [])
-            mrr = compute_mrr(retrieved_articles, expected_article_id)
-            return {"key": "mrr", "score": mrr}
+            try:
+                expected_article_id = reference_outputs.get("expected_article_id")
+                if expected_article_id is None:
+                    return {"key": "mrr", "score": 0.0}
+                retrieved_articles = outputs.get("articles", []) or []
+                if not isinstance(retrieved_articles, list):
+                    retrieved_articles = []
+                mrr = compute_mrr(retrieved_articles, expected_article_id)
+                return {"key": "mrr", "score": mrr}
+            except Exception as e:
+                print(f"ERROR in mrr_evaluator for '{inputs.get('question', 'unknown')[:50]}': {str(e)}")
+                return {"key": "mrr", "score": 0.0}
         
         def ndcg_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
-            expected_article_id = reference_outputs.get("expected_article_id")
-            total_chunks = reference_outputs.get("total_chunks", 1)
-            contexts = outputs.get("contexts", [])
-            ndcg = compute_ndcg_at_k(contexts, expected_article_id, total_chunks, K)
-            return {"key": f"ndcg@{K}", "score": ndcg}
+            try:
+                expected_article_id = reference_outputs.get("expected_article_id")
+                total_chunks = reference_outputs.get("total_chunks", 1) or 1
+                if expected_article_id is None:
+                    return {"key": f"ndcg@{K}", "score": 0.0}
+                contexts = outputs.get("contexts", []) or []
+                if not isinstance(contexts, list):
+                    contexts = []
+                ndcg = compute_ndcg_at_k(contexts, expected_article_id, int(total_chunks), K)
+                return {"key": f"ndcg@{K}", "score": ndcg}
+            except Exception as e:
+                print(f"ERROR in ndcg_evaluator for '{inputs.get('question', 'unknown')[:50]}': {str(e)}")
+                return {"key": f"ndcg@{K}", "score": 0.0}
         
         # Run evaluation - this handles everything
         print(f"\nRunning evaluation on dataset '{DATASET_NAME}'...")
