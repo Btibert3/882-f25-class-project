@@ -259,15 +259,19 @@ def nfl_article_rag_evals():
         def rag_target_function(inputs: dict) -> dict:
             """Wrapper function for evaluate() that calls our Cloud Function."""
             question = inputs["question"]
+            print(f"[rag_target_function] Processing question: {question}")
             try:
                 response = invoke_function(CLOUD_FUNCTION_URL, {"question": question})
+                print(f"[rag_target_function] Success for: {question[:50]}...")
                 return {
                     "answer": response.get("answer", ""),
                     "articles": response.get("articles", []),
                     "contexts": response.get("contexts", []),
                 }
             except Exception as e:
-                print(f"ERROR calling Cloud Function for question '{question}': {str(e)}")
+                print(f"[rag_target_function] ERROR calling Cloud Function for question '{question}': {str(e)}")
+                import traceback
+                print(traceback.format_exc())
                 # Return empty/default values so evaluators can still compute metrics (they'll be 0)
                 return {
                     "answer": f"ERROR: {str(e)}",
@@ -278,11 +282,15 @@ def nfl_article_rag_evals():
         # Define evaluators that compute our metrics
         def precision_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
             """Compute Precision@25."""
-            expected_article_id = reference_outputs.get("expected_article_id")
-            total_chunks = reference_outputs.get("total_chunks", 1)
-            retrieved_articles = outputs.get("articles", [])
-            precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
-            return {"key": f"precision@{K}", "score": precision}
+            try:
+                expected_article_id = reference_outputs.get("expected_article_id")
+                total_chunks = reference_outputs.get("total_chunks", 1)
+                retrieved_articles = outputs.get("articles", [])
+                precision = compute_precision_at_k(retrieved_articles, expected_article_id, K)
+                return {"key": f"precision@{K}", "score": precision}
+            except Exception as e:
+                print(f"[precision_evaluator] ERROR: {str(e)}, inputs={inputs.get('question', '')[:50]}")
+                return {"key": f"precision@{K}", "score": 0.0}
         
         def recall_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) -> dict:
             """Compute Recall@25."""
