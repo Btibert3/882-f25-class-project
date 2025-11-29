@@ -139,9 +139,19 @@ Generate a corrected SQL query:"""
 ### SQL query to answer the question above based on the database schema"""
     
     # use structured output to get clean SQL string
-    structured_llm = llm.with_structured_output(SQLQuery)
-    resp = structured_llm.invoke(prompt)
-    sql_query = resp.sql.strip()
+    try:
+        structured_llm = llm.with_structured_output(SQLQuery)
+        resp = structured_llm.invoke(prompt)
+        if resp is None or not hasattr(resp, 'sql'):
+            # fallback to regular LLM if structured output fails
+            resp_text = llm.invoke(prompt)
+            sql_query = resp_text.content.strip()
+        else:
+            sql_query = resp.sql.strip()
+    except Exception as e:
+        # fallback to regular LLM if structured output fails
+        resp_text = llm.invoke(prompt)
+        sql_query = resp_text.content.strip()
     
     # clean up any remaining backticks or markdown
     sql_query = sql_query.replace("```sql", "").replace("```", "").strip()

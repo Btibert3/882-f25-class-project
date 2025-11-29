@@ -40,6 +40,14 @@ if "workflow" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# cache schema context for multi-turn conversations
+if "schema_context" not in st.session_state:
+    from workflow import get_schema_context
+    import duckdb
+    md = duckdb.connect(f'md:nfl?motherduck_token={md_token}')
+    table_records, col_records = get_schema_context(md)
+    st.session_state.schema_context = {"table_records": table_records, "col_records": col_records}
+
 # replay messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
@@ -56,8 +64,8 @@ if prompt := st.chat_input("Ask a question about the database..."):
                 initial_state: State = {
                     "question": prompt,
                     "request_chart": False,
-                    "table_records": [],
-                    "col_records": [],
+                    "table_records": st.session_state.schema_context["table_records"],
+                    "col_records": st.session_state.schema_context["col_records"],
                     "sql_query": "",
                     "query_results": pd.DataFrame(),
                     "validation": "",
