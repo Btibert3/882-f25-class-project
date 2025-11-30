@@ -8,20 +8,20 @@ echo "======================================================"
 echo "Building Docker image (no cache)"
 echo "======================================================"
 
-docker build --no-cache -t gcr.io/btibert-ba882-fall25/nl-query .
+docker build --no-cache -t gcr.io/btibert-ba882-fall25/nl-query-ui .
 
 echo "======================================================"
 echo "Pushing to Google Container Registry"
 echo "======================================================"
 
-docker push gcr.io/btibert-ba882-fall25/nl-query
+docker push gcr.io/btibert-ba882-fall25/nl-query-ui
 
 echo "======================================================"
 echo "Deploying to Cloud Run"
 echo "======================================================"
 
-gcloud run deploy nl-query \
-    --image gcr.io/btibert-ba882-fall25/nl-query \
+gcloud run deploy nl-query-ui \
+    --image gcr.io/btibert-ba882-fall25/nl-query-ui \
     --platform managed \
     --region us-central1 \
     --allow-unauthenticated \

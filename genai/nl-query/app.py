@@ -30,9 +30,21 @@ md_token = response.payload.data.decode("UTF-8")
 # --- Streamlit UI ---
 st.set_page_config(page_title="NL Query", layout="wide")
 st.title("Natural Language Database Query")
-st.caption("Ask questions about your NFL data in plain English")
+st.caption("Ask questions about our in-class project data (the NFL season) in Natural Language!")
 
-debug_mode = st.sidebar.checkbox("Debug Mode", value=False)
+st.sidebar.header("Note")
+st.sidebar.markdown("""
+This application uses a more "complex" LangGraph pipeline.
+
+It is far from perfect, but aims to highlight:
+
+1.  We _can_ use advanced logic to talk to our internal systems and reason about answers.
+1.  Evaluations are important, and how we wire up these pipelines can have an impact on the end user experience (UX)
+1.  Consider breaking down the problems into smaller units such that a given agent in the pipeline does one thing, and one thing well (e.g. plotting)
+
+> NOTE:  This pipeline also is logging traces to Langsmith for observability.  We can also use these traces to build datasets for further evaluation!.
+
+""")
 
 if "workflow" not in st.session_state:
     st.session_state.workflow = create_workflow(md_token)
