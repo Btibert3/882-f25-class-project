@@ -15,8 +15,19 @@ st.title("Streamlit as a GenAI Interface")
 st.subheader("Great for Prototypes and POCs")
 
 # Sidebar (just for demo text)
-st.sidebar.header("Inputs")
-st.sidebar.markdown("One option is to use sidebars for inputs")
+st.sidebar.header("Note")
+st.sidebar.markdown("""
+This application takes the LangGraph pipeline and puts an interface on top.  
+
+It is a simple RAG application but highlights that:
+
+1.  LangGraph can be run a in serverless environment.
+1.  Our UI layer can be a simple Streamlit app sitting on top, also running serverless.
+1.  Both are running on our GCP project.
+
+> You could imagine using this sidebar to define use-cases, control the model(s) used, show past conversations, etc.
+
+""")
 
 ############################################## Cloud Function setup
 
