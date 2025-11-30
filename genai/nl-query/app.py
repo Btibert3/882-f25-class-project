@@ -101,6 +101,9 @@ if prompt := st.chat_input("Ask a question about the database..."):
                 with st.expander("Generated SQL"):
                     st.code(result["sql_query"], language="sql")
                 
+                # Get query results from the workflow result
+                query_results = result.get("query_results")
+                
                 # chart/data if requested
                 if result.get("request_chart") and query_results is not None and not query_results.empty:
                     st.dataframe(query_results, use_container_width=True)
