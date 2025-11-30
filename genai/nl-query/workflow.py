@@ -22,6 +22,7 @@ llm = ChatVertexAI(
 class State(TypedDict):
     question: str
     request_chart: bool
+    chart_type: str  # 'line', 'bar', etc.
     table_records: list[dict]
     col_records: list[dict]
     sql_query: str
@@ -32,6 +33,9 @@ class State(TypedDict):
     judge_passed: bool
     needs_retry: bool
     retry_count: int
+    conversation_history: list[dict]  # Previous Q&A pairs
+    previous_query_results: Any  # Previous query results DataFrame
+    previous_sql: str  # Previous SQL query
 
 # --- structured output for SQL ---
 class SQLQuery(BaseModel):
@@ -95,32 +99,103 @@ def schema_context_node(state: State, md_token: str) -> State:
     return {**state, "table_records": table_records, "col_records": col_records}
 
 def chart_detection_node(state: State) -> State:
-    """Detect if user wants a chart."""
-    question = state["question"]
+    """Detect if user wants a chart and chart type modifications."""
+    question = state["question"].lower()
+    previous_results = state.get("previous_query_results")
+    
+    # Check for chart modification requests (bar, line, pie, etc.)
+    chart_type = None
+    if "bar chart" in question or "bar graph" in question:
+        chart_type = "bar"
+    elif "line chart" in question or "line graph" in question:
+        chart_type = "line"
+    elif "pie chart" in question:
+        chart_type = "pie"
+    elif "scatter" in question:
+        chart_type = "scatter"
+    
+    # Check if this is a visualization modification request
+    modification_keywords = ["make", "change", "convert", "switch", "show as", "display as"]
+    is_modification = any(k in question for k in modification_keywords) and chart_type is not None
+    
+    # If it's a modification request and we have previous results, we can reuse them
+    if is_modification and previous_results is not None and not previous_results.empty:
+        request_chart = True
+        return {**state, "request_chart": request_chart, "chart_type": chart_type}
+    
+    # Otherwise, detect if user wants a chart
     keywords = ["show", "plot", "chart", "graph", "visualize", "display"]
-    request_chart = any(k in question.lower() for k in keywords)
+    request_chart = any(k in question for k in keywords)
     
     if not request_chart:
-        resp = llm.invoke(f"Does this question request a chart? {question} Answer yes or no.")
+        resp = llm.invoke(f"Does this question request a chart? {state['question']} Answer yes or no.")
         request_chart = "yes" in resp.content.lower()
     
-    return {**state, "request_chart": request_chart}
+    # Detect chart type from question if not already set
+    if request_chart and chart_type is None:
+        if "bar" in question:
+            chart_type = "bar"
+        elif "line" in question:
+            chart_type = "line"
+        else:
+            chart_type = "line"  # default
+    
+    return {**state, "request_chart": request_chart, "chart_type": chart_type or "line"}
 
 def sql_generation_node(state: State) -> State:
-    """Generate SQL from question."""
+    """Generate SQL from question with conversation context."""
     question = state["question"]
     table_records = state.get("table_records", [])
     col_records = state.get("col_records", [])
     previous_sql = state.get("sql_query", "")
     validation_feedback = state.get("validation", "")
+    conversation_history = state.get("conversation_history", [])
+    previous_results = state.get("previous_query_results")
     
+    # Check if this is just a visualization modification request
+    question_lower = question.lower()
+    modification_keywords = ["make", "change", "convert", "switch", "show as", "display as"]
+    is_modification = any(k in question_lower for k in modification_keywords) and (
+        "chart" in question_lower or "graph" in question_lower
+    )
+    
+    # If it's just a chart type modification and we have previous results, reuse previous SQL
+    if is_modification and previous_results is not None and not previous_results.empty:
+        prev_sql = state.get("previous_sql", "")
+        if prev_sql:
+            return {**state, "sql_query": prev_sql}
+    
+    # Build prompt with conversation history
     prompt = f"""### Tables in the database
 {table_records}
 
 ### Column level detail in the database
-{col_records}
+{col_records}"""
+    
+    # Add conversation history context
+    if conversation_history:
+        prompt += "\n\n### Previous conversation context:"
+        for i, msg in enumerate(conversation_history[-3:], 1):  # Last 3 exchanges
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                prompt += f"\n\nUser question {i}: {content}"
+            elif role == "assistant":
+                prompt += f"\n\nAssistant answer {i}: {content[:500]}"  # Truncate long answers
+        
+        # Add previous SQL if available
+        if state.get("previous_sql"):
+            prompt += f"\n\nPrevious SQL query: {state.get('previous_sql')}"
+        
+        # Add information about previous results if available
+        if previous_results is not None and not previous_results.empty:
+            prompt += f"""
+Previous query returned {len(previous_results)} rows with columns: {', '.join(previous_results.columns.tolist()[:5])}
+Sample data: {previous_results.head(3).to_string()}"""
+    
+    prompt += f"""
 
-### User prompt
+### Current user prompt
 {question}"""
     
     if validation_feedback and "No results" in validation_feedback:
@@ -134,6 +209,11 @@ def sql_generation_node(state: State) -> State:
 
 Generate a corrected SQL query:"""
     else:
+        if conversation_history:
+            prompt += """
+
+IMPORTANT: This is a follow-up question. Consider the previous conversation context when generating SQL.
+If the user is asking about the same data from a previous query, you may need to reuse or modify the previous SQL."""
         prompt += """
 
 ### SQL query to answer the question above based on the database schema"""
@@ -159,8 +239,22 @@ Generate a corrected SQL query:"""
     return {**state, "sql_query": sql_query}
 
 def sql_execution_node(state: State, md_token: str) -> State:
-    """Execute SQL query."""
+    """Execute SQL query, or reuse previous results if this is a visualization-only request."""
     sql_query = state.get("sql_query", "")
+    previous_results = state.get("previous_query_results")
+    question = state.get("question", "").lower()
+    
+    # Check if this is a visualization modification request and we have previous results
+    modification_keywords = ["make", "change", "convert", "switch", "show as", "display as"]
+    is_viz_modification = any(k in question for k in modification_keywords) and (
+        "chart" in question or "graph" in question
+    )
+    
+    # If it's just a visualization change and we have previous results, reuse them
+    if is_viz_modification and previous_results is not None and not previous_results.empty:
+        return {**state, "query_results": previous_results}
+    
+    # Otherwise, execute the SQL query
     if not sql_query:
         return state
     
@@ -205,13 +299,26 @@ def answer_generation_node(state: State) -> State:
     sql_query = state.get("sql_query", "")
     query_results = state.get("query_results")
     validation = state.get("validation", "")
+    chart_type = state.get("chart_type", "line")
+    
+    # Check if this is a visualization modification request
+    question_lower = question.lower()
+    modification_keywords = ["make", "change", "convert", "switch", "show as", "display as"]
+    is_viz_modification = any(k in question_lower for k in modification_keywords) and (
+        "chart" in question_lower or "graph" in question_lower
+    )
     
     if query_results is None or query_results.empty:
         answer = "No data found. Try rephrasing your question."
     else:
         results_str = query_results.to_string()
         
-        prompt = f"""Answer this question based on the results:
+        if is_viz_modification:
+            # For visualization modifications, provide a simpler answer
+            chart_type_name = chart_type.replace("_", " ").title()
+            answer = f"Updated the visualization to a {chart_type_name} chart. The data is displayed below."
+        else:
+            prompt = f"""Answer this question based on the results:
 
 Question: {question}
 SQL: {sql_query}
@@ -220,8 +327,8 @@ Results ({len(query_results)} rows):
 {results_str}
 
 Provide a clear answer with all data points:"""
-        resp = llm.invoke(prompt)
-        answer = resp.content
+            resp = llm.invoke(prompt)
+            answer = resp.content
     
     return {**state, "answer": answer}
 

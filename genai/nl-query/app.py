@@ -40,6 +40,12 @@ if "workflow" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+# store previous query results for multi-turn conversations
+if "previous_query_results" not in st.session_state:
+    st.session_state.previous_query_results = None
+if "previous_sql" not in st.session_state:
+    st.session_state.previous_sql = ""
+
 # cache schema context for multi-turn conversations
 if "schema_context" not in st.session_state:
     from workflow import get_schema_context
@@ -61,9 +67,15 @@ if prompt := st.chat_input("Ask a question about the database..."):
     try:
         with st.chat_message("assistant"):
             with st.spinner("Processing..."):
+                # Build conversation history from messages (last 6 messages = 3 exchanges)
+                conversation_history = []
+                for msg in st.session_state.messages[-6:]:
+                    conversation_history.append({"role": msg["role"], "content": msg["content"]})
+                
                 initial_state: State = {
                     "question": prompt,
                     "request_chart": False,
+                    "chart_type": "line",
                     "table_records": st.session_state.schema_context["table_records"],
                     "col_records": st.session_state.schema_context["col_records"],
                     "sql_query": "",
@@ -73,7 +85,10 @@ if prompt := st.chat_input("Ask a question about the database..."):
                     "judge_evaluation": "",
                     "judge_passed": False,
                     "needs_retry": False,
-                    "retry_count": 0
+                    "retry_count": 0,
+                    "conversation_history": conversation_history,
+                    "previous_query_results": st.session_state.previous_query_results,
+                    "previous_sql": st.session_state.previous_sql
                 }
                 
                 with ls.tracing_context(enabled=True, run_id=str(uuid7())):
@@ -87,11 +102,24 @@ if prompt := st.chat_input("Ask a question about the database..."):
                     st.code(result["sql_query"], language="sql")
                 
                 # chart/data if requested
-                query_results = result.get("query_results")
                 if result.get("request_chart") and query_results is not None and not query_results.empty:
                     st.dataframe(query_results, use_container_width=True)
                     if len(query_results.columns) >= 2:
-                        st.line_chart(query_results.set_index(query_results.columns[0]))
+                        chart_type = result.get("chart_type", "line")
+                        df_indexed = query_results.set_index(query_results.columns[0])
+                        
+                        if chart_type == "bar":
+                            st.bar_chart(df_indexed)
+                        elif chart_type == "scatter":
+                            st.scatter_chart(df_indexed)
+                        else:  # default to line
+                            st.line_chart(df_indexed)
+                
+                # Store results for next turn
+                if query_results is not None and not query_results.empty:
+                    st.session_state.previous_query_results = query_results
+                    if result.get("sql_query"):
+                        st.session_state.previous_sql = result["sql_query"]
                 
                 # debug mode
                 if debug_mode:
