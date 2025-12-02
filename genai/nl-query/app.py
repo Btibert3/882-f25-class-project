@@ -137,17 +137,17 @@ if prompt := st.chat_input("Ask a question about the database..."):
                         st.session_state.previous_sql = result["sql_query"]
                 
                 # debug mode
-                if debug_mode:
-                    st.divider()
-                    st.subheader("Debug Information")
-                    st.write("**Judge Evaluation:**")
-                    st.info(result.get("judge_evaluation", "N/A"))
-                    st.write(f"**Passed:** {result.get('judge_passed', False)}")
-                    with st.expander("Full State"):
-                        state_dict = {k: str(v) if isinstance(v, pd.DataFrame) else v for k, v in result.items()}
-                        st.json(state_dict)
-                    st.write("**LangSmith Tracing:**")
-                    st.info("Check LangSmith dashboard for detailed workflow tracing")
+                # if debug_mode:
+                #     st.divider()
+                #     st.subheader("Debug Information")
+                #     st.write("**Judge Evaluation:**")
+                #     st.info(result.get("judge_evaluation", "N/A"))
+                #     st.write(f"**Passed:** {result.get('judge_passed', False)}")
+                #     with st.expander("Full State"):
+                #         state_dict = {k: str(v) if isinstance(v, pd.DataFrame) else v for k, v in result.items()}
+                #         st.json(state_dict)
+                #     st.write("**LangSmith Tracing:**")
+                #     st.info("Check LangSmith dashboard for detailed workflow tracing")
         
         st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
     except Exception as e:
