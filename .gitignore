@@ -2,3 +2,4 @@ superset/
 .terraform/
 .terraform*
 cloud_function.zip
+genai/nl-query/__pycache__/workflow.cpython-312.pyc
